@@ -1,0 +1,8 @@
+target/
+_ref/
+.git/
+.gitignore
+README.md
+LICENSE
+Cargo.lock
+artifacts/
