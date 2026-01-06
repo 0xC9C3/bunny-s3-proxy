@@ -245,6 +245,13 @@ fn parse_range(header: &str, total_size: u64) -> Option<(u64, u64)> {
 async fn handle_put_object(state: AppState, bucket: &str, key: &str, headers: &HeaderMap, body: Bytes) -> Result<Response> {
     if bucket != state.config.storage_zone { return Err(ProxyError::BucketNotFound(bucket.to_string())); }
 
+    // If-None-Match: * means "only create if not exists"
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok())
+        && if_none_match.trim() == "*"
+        && state.bunny.describe(key).await.is_ok() {
+            return Ok(Response::builder().status(StatusCode::PRECONDITION_FAILED).body(Body::empty()).unwrap());
+        }
+
     let options = UploadOptions {
         content_type: headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|s| s.to_string()),
         sha256_checksum: headers.get("x-amz-checksum-sha256").and_then(|v| v.to_str().ok()).map(|s| s.to_string()),
