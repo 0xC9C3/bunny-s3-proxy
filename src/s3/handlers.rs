@@ -185,6 +185,20 @@ async fn handle_get_object(state: AppState, bucket: &str, key: &str, headers: &H
     let etag = download.etag();
     let last_modified = download.last_modified();
 
+    // Check If-None-Match for conditional GET (returns 304 if ETag matches)
+    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok())
+        && let Some(server_etag) = &etag {
+            let server_etag_normalized = server_etag.trim_matches('"');
+            let matches = if_none_match == "*" || if_none_match.split(',')
+                .any(|e| e.trim().trim_matches('"').trim_start_matches("W/").trim_matches('"') == server_etag_normalized);
+            if matches {
+                let mut r = Response::builder().status(StatusCode::NOT_MODIFIED)
+                    .header(header::ETAG, format!("\"{}\"", server_etag_normalized));
+                if let Some(lm) = &last_modified { r = r.header(header::LAST_MODIFIED, lm); }
+                return Ok(r.body(Body::empty()).unwrap());
+            }
+        }
+
     // Parse Range header if present
     if let Some(range_header) = headers.get(header::RANGE).and_then(|v| v.to_str().ok())
         && let Some((start, end)) = parse_range(range_header, total_size) {
