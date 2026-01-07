@@ -72,8 +72,8 @@ impl MultipartManager {
                 return Err(ProxyError::InvalidPart(format!("Part {} ETag mismatch", part_number)));
             }
 
-            total_size += obj.length as u64;
-            part_infos.push((*part_number, actual_etag, obj.length as u64));
+            total_size += obj.length.max(0) as u64;
+            part_infos.push((*part_number, actual_etag, obj.length.max(0) as u64));
         }
 
         // Stream all parts concatenated to final destination
@@ -134,7 +134,7 @@ impl MultipartManager {
                 let download = client.download(&path).await?;
                 let data = download.bytes().await?;
                 let etag = format!("{:x}", md5::Md5::digest(&data));
-                parts.push((part_number, etag, obj.length, obj.last_changed));
+                parts.push((part_number, etag, obj.length.max(0), obj.last_changed));
             }
         }
 

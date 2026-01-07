@@ -162,7 +162,7 @@ async fn handle_list_objects_v2(state: AppState, bucket: &str, uri: &Uri) -> Res
             continue;
         }
 
-        s3_objects.push(S3Object { key, last_modified: obj.last_changed, etag: obj.etag(), size: obj.length, storage_class: "STANDARD".to_string(), owner: None });
+        s3_objects.push(S3Object { key, last_modified: obj.last_changed, etag: obj.etag(), size: obj.length.max(0), storage_class: "STANDARD".to_string(), owner: None });
     }
 
     if let Some(start_after) = &query.start_after {
@@ -188,6 +188,9 @@ async fn handle_head_object(state: AppState, bucket: &str, key: &str) -> Result<
     if bucket != state.config.storage_zone { return Err(ProxyError::BucketNotFound(bucket.to_string())); }
     let obj = state.bunny.describe(key).await?;
 
+    // Bunny returns Length: -1 for non-existent files, or isDirectory for folders
+    if obj.length < 0 || obj.is_directory { return Err(ProxyError::NotFound(key.to_string())); }
+
     let mut r = Response::builder().status(StatusCode::OK)
         .header(header::CONTENT_LENGTH, obj.length)
         .header(header::CONTENT_TYPE, &obj.content_type)
@@ -200,12 +203,11 @@ async fn handle_head_object(state: AppState, bucket: &str, key: &str) -> Result<
 async fn handle_get_object(state: AppState, bucket: &str, key: &str, headers: &HeaderMap) -> Result<Response> {
     if bucket != state.config.storage_zone { return Err(ProxyError::BucketNotFound(bucket.to_string())); }
     let download = state.bunny.download(key).await?;
-    let total_size = download.content_length().unwrap_or(0);
+    let total_size = download.content_length();
     let content_type = download.content_type().unwrap_or("application/octet-stream").to_string();
     let etag = download.etag();
     let last_modified = download.last_modified();
 
-    // Check If-None-Match for conditional GET (returns 304 if ETag matches)
     if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok())
         && let Some(server_etag) = &etag {
             let server_etag_normalized = server_etag.trim_matches('"');
@@ -219,30 +221,28 @@ async fn handle_get_object(state: AppState, bucket: &str, key: &str, headers: &H
             }
         }
 
-    // Parse Range header if present
     if let Some(range_header) = headers.get(header::RANGE).and_then(|v| v.to_str().ok())
-        && let Some((start, end)) = parse_range(range_header, total_size) {
+        && let Some(size) = total_size
+        && let Some((start, end)) = parse_range(range_header, size) {
             let data = download.bytes().await?;
             let end = end.min(data.len() as u64 - 1);
             let slice = data.slice(start as usize..=end as usize);
-            let content_length = slice.len();
 
             let mut r = Response::builder()
                 .status(StatusCode::PARTIAL_CONTENT)
-                .header(header::CONTENT_LENGTH, content_length)
+                .header(header::CONTENT_LENGTH, slice.len())
                 .header(header::CONTENT_TYPE, content_type)
-                .header(header::CONTENT_RANGE, format!("bytes {}-{}/{}", start, end, total_size))
+                .header(header::CONTENT_RANGE, format!("bytes {}-{}/{}", start, end, size))
                 .header(header::ACCEPT_RANGES, "bytes");
             if let Some(etag) = etag { r = r.header(header::ETAG, format!("\"{}\"", etag.trim_matches('"'))); }
             if let Some(lm) = last_modified { r = r.header(header::LAST_MODIFIED, lm); }
             return Ok(r.body(Body::from(slice)).unwrap());
         }
 
-    // No range or invalid range - return full content
     let mut r = Response::builder().status(StatusCode::OK)
-        .header(header::CONTENT_LENGTH, total_size)
         .header(header::CONTENT_TYPE, content_type)
         .header(header::ACCEPT_RANGES, "bytes");
+    if let Some(size) = total_size { r = r.header(header::CONTENT_LENGTH, size); }
     if let Some(etag) = etag { r = r.header(header::ETAG, format!("\"{}\"", etag.trim_matches('"'))); }
     if let Some(lm) = last_modified { r = r.header(header::LAST_MODIFIED, lm); }
 
