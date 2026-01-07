@@ -1,6 +1,7 @@
 mod bunny;
 mod config;
 mod error;
+mod lock;
 mod s3;
 
 use axum::{routing::any, Router};

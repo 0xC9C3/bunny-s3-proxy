@@ -1,12 +1,14 @@
 [package]
 name = "bunny-s3-proxy"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 description = "S3-compatible proxy for Bunny.net storage"
 license = "AGPL-3.0"
 
 [dependencies]
 tokio = { version = "1.49", features = ["full"] }
+dashmap = "6.1"
+redis = { version = "0.29", features = ["tokio-comp"] }
 axum = { version = "0.8", features = ["tokio"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }

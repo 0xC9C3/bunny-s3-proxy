@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::bunny::{BunnyClient, UploadOptions};
 use crate::config::Config;
 use crate::error::{ProxyError, Result};
+use crate::lock::{ConditionalLock, InMemoryLock, Lock};
 
 use super::auth::{calculate_payload_hash, AwsAuth, EMPTY_PAYLOAD_HASH, UNSIGNED_PAYLOAD};
 use super::multipart::MultipartManager;
@@ -18,15 +19,34 @@ pub struct AppState {
     pub bunny: BunnyClient,
     pub auth: AwsAuth,
     pub config: Arc<Config>,
+    pub lock: Arc<Lock>,
 }
 
 impl AppState {
     pub fn new(config: Config) -> Self {
+        let lock = Self::create_lock(&config);
         Self {
             bunny: BunnyClient::new((&config).into()),
             auth: AwsAuth::new(config.s3_access_key_id.clone(), config.s3_secret_access_key.clone()),
             config: Arc::new(config),
+            lock: Arc::new(lock),
         }
+    }
+
+    fn create_lock(config: &Config) -> Lock {
+        if let Some(redis_url) = &config.redis_url {
+            match crate::lock::RedisLock::new(redis_url, std::time::Duration::from_millis(config.redis_lock_ttl_ms)) {
+                Ok(redis_lock) => {
+                    tracing::info!("Using Redis for conditional write locks");
+                    return Lock::Redis(redis_lock);
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to connect to Redis: {}", e);
+                }
+            }
+        }
+        tracing::info!("Using in-memory conditional write locks");
+        Lock::InMemory(InMemoryLock::new())
     }
 }
 
@@ -245,12 +265,23 @@ fn parse_range(header: &str, total_size: u64) -> Option<(u64, u64)> {
 async fn handle_put_object(state: AppState, bucket: &str, key: &str, headers: &HeaderMap, body: Bytes) -> Result<Response> {
     if bucket != state.config.storage_zone { return Err(ProxyError::BucketNotFound(bucket.to_string())); }
 
-    // If-None-Match: * means "only create if not exists"
-    if let Some(if_none_match) = headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok())
-        && if_none_match.trim() == "*"
-        && state.bunny.describe(key).await.is_ok() {
-            return Ok(Response::builder().status(StatusCode::PRECONDITION_FAILED).body(Body::empty()).unwrap());
+    let is_conditional = headers.get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.trim() == "*");
+
+    let _lock_guard = if is_conditional {
+        match state.lock.try_lock(key).await {
+            Some(guard) => {
+                if state.bunny.describe(key).await.is_ok() {
+                    return Ok(Response::builder().status(StatusCode::PRECONDITION_FAILED).body(Body::empty()).unwrap());
+                }
+                Some(guard)
+            }
+            None => return Ok(Response::builder().status(StatusCode::CONFLICT).body(Body::from("Concurrent write in progress")).unwrap()),
         }
+    } else {
+        None
+    };
 
     let options = UploadOptions {
         content_type: headers.get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|s| s.to_string()),

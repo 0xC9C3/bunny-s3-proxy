@@ -93,6 +93,12 @@ pub struct Config {
 
     #[arg(short = 'v', long, env = "VERBOSE", default_value = "false")]
     pub verbose: bool,
+
+    #[arg(long, env = "REDIS_URL")]
+    pub redis_url: Option<String>,
+
+    #[arg(long, env = "REDIS_LOCK_TTL_MS", default_value = "30000")]
+    pub redis_lock_ttl_ms: u64,
 }
 
 #[derive(Debug, Clone)]
