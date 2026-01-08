@@ -45,8 +45,12 @@ impl ProxyError {
 
     pub fn status_code(&self) -> StatusCode {
         match self {
-            Self::NotFound(_) | Self::BucketNotFound(_) | Self::MultipartNotFound(_) => StatusCode::NOT_FOUND,
-            Self::AccessDenied | Self::InvalidSignature | Self::MissingAuth => StatusCode::FORBIDDEN,
+            Self::NotFound(_) | Self::BucketNotFound(_) | Self::MultipartNotFound(_) => {
+                StatusCode::NOT_FOUND
+            }
+            Self::AccessDenied | Self::InvalidSignature | Self::MissingAuth => {
+                StatusCode::FORBIDDEN
+            }
             Self::InvalidRequest(_) | Self::InvalidPart(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -58,10 +62,21 @@ impl IntoResponse for ProxyError {
         let body = format!(
             r#"<?xml version="1.0" encoding="UTF-8"?><Error><Code>{}</Code><Message>{}</Message><RequestId>{}</RequestId></Error>"#,
             self.s3_error_code(),
-            self.to_string().replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;"),
+            self.to_string()
+                .replace('&', "&amp;")
+                .replace('<', "&lt;")
+                .replace('>', "&gt;"),
             uuid::Uuid::new_v4()
         );
-        (self.status_code(), [("content-type", "application/xml"), ("x-amz-request-id", &uuid::Uuid::new_v4().to_string())], body).into_response()
+        (
+            self.status_code(),
+            [
+                ("content-type", "application/xml"),
+                ("x-amz-request-id", &uuid::Uuid::new_v4().to_string()),
+            ],
+            body,
+        )
+            .into_response()
     }
 }
 

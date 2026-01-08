@@ -4,4 +4,4 @@ pub mod multipart;
 pub mod types;
 pub mod xml;
 
-pub use handlers::{handle_s3_request, AppState};
+pub use handlers::{AppState, handle_s3_request};

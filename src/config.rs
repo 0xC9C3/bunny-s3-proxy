@@ -29,7 +29,6 @@ pub enum StorageRegion {
     Sydney,
 }
 
-
 impl StorageRegion {
     pub fn base_url(&self) -> &'static str {
         match self {
@@ -85,7 +84,12 @@ pub struct Config {
     #[arg(long, env = "S3_SECRET_ACCESS_KEY", default_value = "bunny")]
     pub s3_secret_access_key: String,
 
-    #[arg(short = 'l', long, env = "LISTEN_ADDR", default_value = "127.0.0.1:9000")]
+    #[arg(
+        short = 'l',
+        long,
+        env = "LISTEN_ADDR",
+        default_value = "127.0.0.1:9000"
+    )]
     pub listen_addr: SocketAddr,
 
     #[arg(short = 's', long, env = "SOCKET_PATH")]

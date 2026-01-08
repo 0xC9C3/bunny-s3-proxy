@@ -4,14 +4,14 @@ mod error;
 mod lock;
 mod s3;
 
-use axum::{routing::any, Router};
+use axum::{Router, routing::any};
 use clap::Parser;
 use tokio::net::{TcpListener, UnixListener};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use config::Config;
-use s3::{handle_s3_request, AppState};
+use s3::{AppState, handle_s3_request};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -22,16 +22,14 @@ async fn main() -> anyhow::Result<()> {
     let log_level = if config.verbose { "debug" } else { "info" };
     tracing_subscriber::registry()
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| format!("bunny_s3_proxy={},tower_http=debug", log_level).into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                format!("bunny_s3_proxy={},tower_http=debug", log_level).into()
+            }),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    tracing::info!(
-        "Starting bunny-s3-proxy v{}",
-        env!("CARGO_PKG_VERSION")
-    );
+    tracing::info!("Starting bunny-s3-proxy v{}", env!("CARGO_PKG_VERSION"));
     tracing::info!("Storage zone: {}", config.storage_zone);
     tracing::info!("Region: {}", config.region);
 
@@ -68,14 +66,8 @@ async fn main() -> anyhow::Result<()> {
     } else {
         // TCP mode
         tracing::info!("Listening on http://{}", config.listen_addr);
-        tracing::info!(
-            "S3 endpoint: http://{}",
-            config.listen_addr
-        );
-        tracing::info!(
-            "Access Key ID: {}",
-            config.s3_access_key_id
-        );
+        tracing::info!("S3 endpoint: http://{}", config.listen_addr);
+        tracing::info!("Access Key ID: {}", config.s3_access_key_id);
 
         let listener = TcpListener::bind(config.listen_addr).await?;
         axum::serve(listener, app).await?;
@@ -97,15 +89,10 @@ async fn serve_unix(listener: UnixListener, app: Router) -> anyhow::Result<()> {
         tokio::spawn(async move {
             let service = hyper::service::service_fn(move |req| {
                 let app = app.clone();
-                async move {
-                    app.oneshot(req).await
-                }
+                async move { app.oneshot(req).await }
             });
 
-            if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service)
-                .await
-            {
+            if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
                 tracing::error!("Error serving connection: {}", err);
             }
         });

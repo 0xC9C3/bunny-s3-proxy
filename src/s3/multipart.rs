@@ -26,11 +26,22 @@ impl MultipartManager {
     pub async fn create(client: &BunnyClient, _bucket: &str, key: &str) -> Result<String> {
         let upload_id = uuid::Uuid::new_v4().to_string();
         let meta = format!("{}|{}", key, Utc::now().to_rfc3339());
-        client.upload(&Self::meta_path(&upload_id), Bytes::from(meta), Default::default()).await?;
+        client
+            .upload(
+                &Self::meta_path(&upload_id),
+                Bytes::from(meta),
+                Default::default(),
+            )
+            .await?;
         Ok(upload_id)
     }
 
-    pub async fn upload_part(client: &BunnyClient, upload_id: &str, part_number: i32, data: Bytes) -> Result<String> {
+    pub async fn upload_part(
+        client: &BunnyClient,
+        upload_id: &str,
+        part_number: i32,
+        data: Bytes,
+    ) -> Result<String> {
         if !Self::exists(client, upload_id).await? {
             return Err(ProxyError::MultipartNotFound(upload_id.to_string()));
         }
@@ -59,7 +70,9 @@ impl MultipartManager {
 
         for (part_number, expected_etag) in parts {
             let path = Self::part_path(upload_id, *part_number);
-            let obj = client.describe(&path).await
+            let obj = client
+                .describe(&path)
+                .await
                 .map_err(|_| ProxyError::InvalidPart(format!("Part {} not found", part_number)))?;
 
             use md5::Digest;
@@ -69,7 +82,10 @@ impl MultipartManager {
 
             let expected = expected_etag.trim_matches('"');
             if actual_etag != expected {
-                return Err(ProxyError::InvalidPart(format!("Part {} ETag mismatch", part_number)));
+                return Err(ProxyError::InvalidPart(format!(
+                    "Part {} ETag mismatch",
+                    part_number
+                )));
             }
 
             total_size += obj.length.max(0) as u64;
@@ -97,7 +113,8 @@ impl MultipartManager {
 
         // Calculate final ETag (MD5 of concatenated part MD5s + part count)
         use md5::Digest;
-        let combined_md5: Vec<u8> = part_infos.iter()
+        let combined_md5: Vec<u8> = part_infos
+            .iter()
             .flat_map(|(_, etag, _)| hex::decode(etag).unwrap_or_default())
             .collect();
         let final_etag = format!("{:x}-{}", md5::Md5::digest(&combined_md5), parts.len());
@@ -115,7 +132,10 @@ impl MultipartManager {
         Self::cleanup(client, upload_id).await
     }
 
-    pub async fn list_parts(client: &BunnyClient, upload_id: &str) -> Result<Vec<(i32, String, i64, DateTime<Utc>)>> {
+    pub async fn list_parts(
+        client: &BunnyClient,
+        upload_id: &str,
+    ) -> Result<Vec<(i32, String, i64, DateTime<Utc>)>> {
         if !Self::exists(client, upload_id).await? {
             return Err(ProxyError::MultipartNotFound(upload_id.to_string()));
         }
@@ -142,7 +162,10 @@ impl MultipartManager {
         Ok(parts)
     }
 
-    pub async fn list_uploads(client: &BunnyClient, _bucket: &str) -> Result<Vec<(String, String, DateTime<Utc>)>> {
+    pub async fn list_uploads(
+        client: &BunnyClient,
+        _bucket: &str,
+    ) -> Result<Vec<(String, String, DateTime<Utc>)>> {
         let objects = client.list(MULTIPART_PREFIX).await?;
         let mut uploads = Vec::new();
 
@@ -155,11 +178,12 @@ impl MultipartManager {
 
             if let Ok(download) = client.download(&meta_path).await
                 && let Ok(data) = download.bytes().await
-                    && let Ok(meta) = String::from_utf8(data.to_vec())
-                        && let Some((key, initiated)) = meta.split_once('|')
-                            && let Ok(dt) = DateTime::parse_from_rfc3339(initiated) {
-                                uploads.push((key.to_string(), upload_id, dt.with_timezone(&Utc)));
-                            }
+                && let Ok(meta) = String::from_utf8(data.to_vec())
+                && let Some((key, initiated)) = meta.split_once('|')
+                && let Ok(dt) = DateTime::parse_from_rfc3339(initiated)
+            {
+                uploads.push((key.to_string(), upload_id, dt.with_timezone(&Utc)));
+            }
         }
 
         Ok(uploads)

@@ -61,15 +61,20 @@ impl BunnyClient {
         }
     }
 
-    pub async fn list_recursive(&self, prefix: &str, max_keys: Option<usize>) -> Result<Vec<StorageObject>> {
+    pub async fn list_recursive(
+        &self,
+        prefix: &str,
+        max_keys: Option<usize>,
+    ) -> Result<Vec<StorageObject>> {
         let mut all_objects = Vec::new();
         let mut dirs_to_process = vec![prefix.to_string()];
 
         while let Some(dir) = dirs_to_process.pop() {
             if let Some(max) = max_keys
-                && all_objects.len() >= max {
-                    break;
-                }
+                && all_objects.len() >= max
+            {
+                break;
+            }
 
             let objects = self.list(&dir).await?;
             for obj in objects {
@@ -78,9 +83,10 @@ impl BunnyClient {
                 } else {
                     all_objects.push(obj);
                     if let Some(max) = max_keys
-                        && all_objects.len() >= max {
-                            break;
-                        }
+                        && all_objects.len() >= max
+                    {
+                        break;
+                    }
                 }
             }
         }
@@ -145,7 +151,9 @@ impl BunnyClient {
 
         match response.status() {
             StatusCode::OK | StatusCode::CREATED => Ok(()),
-            StatusCode::BAD_REQUEST => Err(ProxyError::InvalidRequest("Invalid path or checksum".into())),
+            StatusCode::BAD_REQUEST => Err(ProxyError::InvalidRequest(
+                "Invalid path or checksum".into(),
+            )),
             StatusCode::UNAUTHORIZED => Err(ProxyError::AccessDenied),
             status => Err(ProxyError::BunnyApi(format!("Upload failed: {}", status))),
         }
@@ -174,7 +182,9 @@ impl BunnyClient {
 
         match response.status() {
             StatusCode::OK | StatusCode::CREATED => Ok(()),
-            StatusCode::BAD_REQUEST => Err(ProxyError::InvalidRequest("Invalid path or checksum".into())),
+            StatusCode::BAD_REQUEST => Err(ProxyError::InvalidRequest(
+                "Invalid path or checksum".into(),
+            )),
             StatusCode::UNAUTHORIZED => Err(ProxyError::AccessDenied),
             status => Err(ProxyError::BunnyApi(format!("Upload failed: {}", status))),
         }
@@ -218,22 +228,35 @@ impl DownloadResponse {
     }
 
     pub fn content_type(&self) -> Option<&str> {
-        self.response.headers().get("content-type").and_then(|v| v.to_str().ok())
+        self.response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
     }
 
     pub fn etag(&self) -> Option<String> {
-        self.response.headers().get("etag").and_then(|v| v.to_str().ok()).map(|s| s.to_string())
+        self.response
+            .headers()
+            .get("etag")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
     }
 
     pub fn last_modified(&self) -> Option<String> {
-        self.response.headers().get("last-modified").and_then(|v| v.to_str().ok()).map(|s| s.to_string())
+        self.response
+            .headers()
+            .get("last-modified")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
     }
 
     pub async fn bytes(self) -> Result<Bytes> {
         Ok(self.response.bytes().await?)
     }
 
-    pub fn bytes_stream(self) -> impl futures::Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send {
+    pub fn bytes_stream(
+        self,
+    ) -> impl futures::Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send {
         self.response.bytes_stream()
     }
 }

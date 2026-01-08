@@ -79,8 +79,16 @@ impl CopySource {
     pub fn parse(header: &str) -> Option<Self> {
         let path = header.trim_start_matches('/');
         let parts: Vec<&str> = path.splitn(2, '/').collect();
-        if parts.len() < 2 { return None; }
-        let key = parts[1].split_once("?versionId=").map(|(k, _)| k).unwrap_or(parts[1]);
-        Some(Self { bucket: parts[0].to_string(), key: key.to_string() })
+        if parts.len() < 2 {
+            return None;
+        }
+        let key = parts[1]
+            .split_once("?versionId=")
+            .map(|(k, _)| k)
+            .unwrap_or(parts[1]);
+        Some(Self {
+            bucket: parts[0].to_string(),
+            key: key.to_string(),
+        })
     }
 }

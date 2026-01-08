@@ -1,6 +1,6 @@
+use dashmap::DashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use dashmap::DashMap;
 
 pub struct LockGuard {
     #[allow(dead_code)]
@@ -28,12 +28,16 @@ pub struct InMemoryLock {
 
 impl InMemoryLock {
     pub fn new() -> Self {
-        Self { locks: Arc::new(DashMap::new()) }
+        Self {
+            locks: Arc::new(DashMap::new()),
+        }
     }
 }
 
 impl Default for InMemoryLock {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ConditionalLock for InMemoryLock {
@@ -47,7 +51,9 @@ impl ConditionalLock for InMemoryLock {
                 let key = key.to_string();
                 Some(LockGuard {
                     key: key.clone(),
-                    release: Some(Box::new(move || { locks.remove(&key); })),
+                    release: Some(Box::new(move || {
+                        locks.remove(&key);
+                    })),
                 })
             }
         }
@@ -63,7 +69,11 @@ pub struct RedisLock {
 impl RedisLock {
     pub fn new(redis_url: &str, ttl: Duration) -> Result<Self, redis::RedisError> {
         let client = redis::Client::open(redis_url)?;
-        Ok(Self { client, ttl, prefix: "bunny-s3-lock:".to_string() })
+        Ok(Self {
+            client,
+            ttl,
+            prefix: "bunny-s3-lock:".to_string(),
+        })
     }
 
     fn lock_key(&self, key: &str) -> String {
@@ -100,7 +110,11 @@ impl ConditionalLock for RedisLock {
                             let script = redis::Script::new(
                                 r#"if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end"#,
                             );
-                            let _: Result<i32, _> = script.key(&lock_key_owned).arg(&lock_value_owned).invoke_async(&mut conn).await;
+                            let _: Result<i32, _> = script
+                                .key(&lock_key_owned)
+                                .arg(&lock_value_owned)
+                                .invoke_async(&mut conn)
+                                .await;
                         }
                     });
                 })),
