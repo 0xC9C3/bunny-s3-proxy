@@ -191,7 +191,7 @@ impl BunnyClient {
             .await?;
 
         match response.status() {
-            StatusCode::OK | StatusCode::NOT_FOUND => Ok(()),
+            StatusCode::OK | StatusCode::NOT_FOUND | StatusCode::BAD_REQUEST => Ok(()),
             StatusCode::UNAUTHORIZED => Err(ProxyError::AccessDenied),
             status => Err(ProxyError::BunnyApi(format!("Delete failed: {}", status))),
         }
