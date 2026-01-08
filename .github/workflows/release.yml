@@ -86,7 +86,7 @@ jobs:
 
       - name: Get version from release tag
         id: version
-        run: echo "version=${TAG_NAME#v}" >> $GITHUB_OUTPUT
+        run: echo "version=${TAG_NAME##*-v}" >> $GITHUB_OUTPUT
         env:
           TAG_NAME: ${{ needs.release-please.outputs.tag_name }}
 
