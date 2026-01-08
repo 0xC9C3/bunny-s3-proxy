@@ -1,6 +1,6 @@
 [package]
 name = "bunny-s3-proxy"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2024"
 description = "S3-compatible proxy for Bunny.net storage"
 license = "AGPL-3.0"
