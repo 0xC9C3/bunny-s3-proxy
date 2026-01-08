@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.6](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.5...bunny-s3-proxy-v0.3.6) (2026-01-08)
+
+
+### Features
+
+* add CI checks before release ([f835f89](https://github.com/0xC9C3/bunny-s3-proxy/commit/f835f89bbf09edc5d71ea7c0be4df6b979fce80b))
+
+
+### Bug Fixes
+
+* extract version correctly from release tag ([17ab1e3](https://github.com/0xC9C3/bunny-s3-proxy/commit/17ab1e3d383b859fb3961ddf16a1db74e166728d))
+
 ## [0.3.5](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.4...bunny-s3-proxy-v0.3.5) (2026-01-08)
 
 
