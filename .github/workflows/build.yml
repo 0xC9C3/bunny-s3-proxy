@@ -1,8 +1,8 @@
 name: Build and Push
 
 on:
-  push:
-    branches: [main]
+  release:
+    types: [published]
 
 env:
   REGISTRY: ghcr.io
@@ -50,16 +50,9 @@ jobs:
         env:
           IMAGE_NAME: ${{ github.repository }}
 
-      - name: Get version from Cargo.toml
+      - name: Get version from release tag
         id: version
-        run: |
-          VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          if docker manifest inspect ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:$VERSION > /dev/null 2>&1; then
-            echo "exists=true" >> $GITHUB_OUTPUT
-          else
-            echo "exists=false" >> $GITHUB_OUTPUT
-          fi
+        run: echo "version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
       - name: Download artifacts
         uses: actions/download-artifact@v7
@@ -86,19 +79,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine tags
-        id: tags
-        run: |
-          TAGS="${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:latest"
-          if [ "${{ steps.version.outputs.exists }}" == "false" ]; then
-            TAGS="$TAGS,${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ steps.version.outputs.version }}"
-          fi
-          echo "tags=$TAGS" >> $GITHUB_OUTPUT
-
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:latest
+            ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ steps.version.outputs.version }}
