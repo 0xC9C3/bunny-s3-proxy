@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.7](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.6...bunny-s3-proxy-v0.3.7) (2026-01-09)
+
+
+### Features
+
+* add centralized log-level control ([28a95fa](https://github.com/0xC9C3/bunny-s3-proxy/commit/28a95fabafad353ed246f87034999d030bcfc645))
+
 ## [0.3.6](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.5...bunny-s3-proxy-v0.3.6) (2026-01-08)
 
 
