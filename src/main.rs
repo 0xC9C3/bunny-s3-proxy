@@ -19,11 +19,10 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::parse();
 
     // Initialize logging
-    let log_level = if config.verbose { "debug" } else { "info" };
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                format!("bunny_s3_proxy={},tower_http=debug", log_level).into()
+                format!("bunny_s3_proxy={0},tower_http={0}", config.log_level).into()
             }),
         )
         .with(tracing_subscriber::fmt::layer())

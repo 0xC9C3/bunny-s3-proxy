@@ -48,13 +48,15 @@ aws --endpoint-url http://127.0.0.1:9000 s3 cp file.txt s3://myzone/file.txt
 | `-s, --socket-path` | `SOCKET_PATH` | Unix socket path (alternative to TCP) |
 | `--s3-access-key-id` | `S3_ACCESS_KEY_ID` | S3 auth access key (default: `bunny`) |
 | `--s3-secret-access-key` | `S3_SECRET_ACCESS_KEY` | S3 auth secret key (default: `bunny`) |
-| `-v, --verbose` | `VERBOSE` | Enable debug logging |
+| `-L, --log-level` | `LOG_LEVEL` | Log level: `error`, `warn`, `info` (default), `debug`, `trace` |
+| `--redis-url` | `REDIS_URL` | Redis URL for distributed locking (optional) |
+| `--redis-lock-ttl-ms` | `REDIS_LOCK_TTL_MS` | Redis lock TTL in ms (default: `30000`) |
 
 ## Supported S3 Operations
 
 - ListBuckets, HeadBucket
 - ListObjectsV2 (with prefix/delimiter)
-- GetObject (with Range requests), HeadObject, PutObject, DeleteObject
+- GetObject (with Range and If-None-Match), HeadObject, PutObject (with If-None-Match), DeleteObject
 - CopyObject, DeleteObjects (batch)
 - Multipart uploads (CreateMultipartUpload, UploadPart, CompleteMultipartUpload, AbortMultipartUpload, ListParts)
 

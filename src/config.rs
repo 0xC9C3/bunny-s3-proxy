@@ -65,6 +65,28 @@ impl fmt::Display for StorageRegion {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, clap::ValueEnum)]
+pub enum LogLevel {
+    Error,
+    Warn,
+    #[default]
+    Info,
+    Debug,
+    Trace,
+}
+
+impl fmt::Display for LogLevel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Error => write!(f, "error"),
+            Self::Warn => write!(f, "warn"),
+            Self::Info => write!(f, "info"),
+            Self::Debug => write!(f, "debug"),
+            Self::Trace => write!(f, "trace"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Parser)]
 #[command(name = "bunny-s3-proxy")]
 #[command(about = "S3-compatible proxy for Bunny.net storage")]
@@ -95,8 +117,8 @@ pub struct Config {
     #[arg(short = 's', long, env = "SOCKET_PATH")]
     pub socket_path: Option<PathBuf>,
 
-    #[arg(short = 'v', long, env = "VERBOSE", default_value = "false")]
-    pub verbose: bool,
+    #[arg(short = 'L', long, env = "LOG_LEVEL", default_value = "info")]
+    pub log_level: LogLevel,
 
     #[arg(long, env = "REDIS_URL")]
     pub redis_url: Option<String>,
