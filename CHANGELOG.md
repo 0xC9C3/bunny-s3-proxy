@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.17](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.16...bunny-s3-proxy-v0.3.17) (2026-01-10)
+
+
+### Features
+
+* streaming multipart complete with memory efficiency ([91c4c17](https://github.com/0xC9C3/bunny-s3-proxy/commit/91c4c17f53d493f7126b70cfbb82313ac2c62c02))
+
 ## [0.3.16](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.15...bunny-s3-proxy-v0.3.16) (2026-01-10)
 
 
