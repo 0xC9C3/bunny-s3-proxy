@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.9](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.8...bunny-s3-proxy-v0.3.9) (2026-01-10)
+
+
+### Features
+
+* add connect timeout for http client ([cdcc2d3](https://github.com/0xC9C3/bunny-s3-proxy/commit/cdcc2d33460f352f0dbe2ae65cefa4b80b9f4a33))
+* streaming uploads with post-upload hash verification ([0685cc0](https://github.com/0xC9C3/bunny-s3-proxy/commit/0685cc03ae0e4d4714f04c2f28daee99cccd4243))
+
 ## [0.3.8](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.7...bunny-s3-proxy-v0.3.8) (2026-01-10)
 
 
