@@ -15,6 +15,10 @@ impl MultipartManager {
         format!("{}/{}/{:05}", MULTIPART_PREFIX, upload_id, part_number)
     }
 
+    fn part_etag_path(upload_id: &str, part_number: i32) -> String {
+        format!("{}/{}/{:05}.etag", MULTIPART_PREFIX, upload_id, part_number)
+    }
+
     fn meta_path(upload_id: &str) -> String {
         format!("{}/{}/_meta", MULTIPART_PREFIX, upload_id)
     }
@@ -36,6 +40,30 @@ impl MultipartManager {
         Ok(upload_id)
     }
 
+    pub async fn store_part_etag(
+        client: &BunnyClient,
+        upload_id: &str,
+        part_number: i32,
+        etag: &str,
+    ) -> Result<()> {
+        let path = Self::part_etag_path(upload_id, part_number);
+        client
+            .upload(&path, Bytes::from(etag.to_string()), Default::default())
+            .await
+    }
+
+    async fn read_part_etag(
+        client: &BunnyClient,
+        upload_id: &str,
+        part_number: i32,
+    ) -> Result<String> {
+        let path = Self::part_etag_path(upload_id, part_number);
+        let download = client.download(&path).await?;
+        let data = download.bytes().await?;
+        String::from_utf8(data.to_vec())
+            .map_err(|_| ProxyError::InvalidPart(format!("Invalid ETag for part {}", part_number)))
+    }
+
     pub async fn complete(
         client: &BunnyClient,
         _bucket: &str,
@@ -47,9 +75,8 @@ impl MultipartManager {
             return Err(ProxyError::MultipartNotFound(upload_id.to_string()));
         }
 
-        // Verify all parts exist and ETags match
         let mut total_size: u64 = 0;
-        let mut part_infos = Vec::new();
+        let mut part_etags = Vec::new();
 
         for (part_number, expected_etag) in parts {
             let path = Self::part_path(upload_id, *part_number);
@@ -58,24 +85,20 @@ impl MultipartManager {
                 .await
                 .map_err(|_| ProxyError::InvalidPart(format!("Part {} not found", part_number)))?;
 
-            use md5::Digest;
-            let download = client.download(&path).await?;
-            let data = download.bytes().await?;
-            let actual_etag = format!("{:x}", md5::Md5::digest(&data));
-
+            let actual_etag = Self::read_part_etag(client, upload_id, *part_number).await?;
             let expected = expected_etag.trim_matches('"');
+
             if actual_etag != expected {
                 return Err(ProxyError::InvalidPart(format!(
-                    "Part {} ETag mismatch",
-                    part_number
+                    "Part {} ETag mismatch: expected {}, got {}",
+                    part_number, expected, actual_etag
                 )));
             }
 
             total_size += obj.length.max(0) as u64;
-            part_infos.push((*part_number, actual_etag, obj.length.max(0) as u64));
+            part_etags.push(actual_etag);
         }
 
-        // Stream all parts concatenated to final destination
         let parts_for_stream: Vec<(i32, String)> = parts.to_vec();
         let client_clone = client.clone();
         let upload_id_clone = upload_id.to_string();
@@ -94,15 +117,13 @@ impl MultipartManager {
 
         client.upload_stream(key, stream, Some(total_size)).await?;
 
-        // Calculate final ETag (MD5 of concatenated part MD5s + part count)
         use md5::Digest;
-        let combined_md5: Vec<u8> = part_infos
+        let combined_md5: Vec<u8> = part_etags
             .iter()
-            .flat_map(|(_, etag, _)| hex::decode(etag).unwrap_or_default())
+            .flat_map(|etag| hex::decode(etag).unwrap_or_default())
             .collect();
         let final_etag = format!("{:x}-{}", md5::Md5::digest(&combined_md5), parts.len());
 
-        // Cleanup temp parts
         Self::cleanup(client, upload_id).await?;
 
         Ok(final_etag)
@@ -128,15 +149,13 @@ impl MultipartManager {
 
         let mut parts = Vec::new();
         for obj in objects {
-            if obj.object_name == "_meta" {
+            if obj.object_name == "_meta" || obj.object_name.ends_with(".etag") {
                 continue;
             }
             if let Ok(part_number) = obj.object_name.parse::<i32>() {
-                use md5::Digest;
-                let path = Self::part_path(upload_id, part_number);
-                let download = client.download(&path).await?;
-                let data = download.bytes().await?;
-                let etag = format!("{:x}", md5::Md5::digest(&data));
+                let etag = Self::read_part_etag(client, upload_id, part_number)
+                    .await
+                    .unwrap_or_else(|_| "unknown".to_string());
                 parts.push((part_number, etag, obj.length.max(0), obj.last_changed));
             }
         }
@@ -190,7 +209,6 @@ impl MultipartManager {
             let _ = client.delete(&path).await;
         }
 
-        // Delete the directory itself
         let _ = client.delete(&format!("{}/", dir)).await;
         Ok(())
     }

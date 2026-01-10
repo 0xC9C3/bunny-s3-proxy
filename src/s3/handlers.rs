@@ -823,6 +823,8 @@ async fn handle_upload_part_stream(
         .await
         .map_err(|_| ProxyError::InvalidRequest("Failed to compute ETag".to_string()))?;
 
+    MultipartManager::store_part_etag(&state.bunny, upload_id, part_number, &etag).await?;
+
     Ok((
         StatusCode::OK,
         [(header::ETAG, format!("\"{}\"", etag))],
