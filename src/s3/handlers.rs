@@ -129,21 +129,23 @@ pub async fn handle_s3_request(
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    let is_unsigned = payload_hash.as_deref() == Some(UNSIGNED_PAYLOAD);
     let has_auth = headers.get("authorization").is_some();
     let content_length: Option<u64> = headers
         .get(header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok());
 
-    if is_unsigned && method == Method::PUT && bucket.is_some() && key.is_some() {
-        if has_auth
-            && let Err(e) = state
+    if method == Method::PUT && bucket.is_some() && key.is_some() {
+        if has_auth {
+            let hash_for_sig = payload_hash.as_deref().unwrap_or(UNSIGNED_PAYLOAD);
+            if let Err(e) = state
                 .auth
-                .verify_request(&method, &uri, &headers, UNSIGNED_PAYLOAD)
-        {
-            return e.into_response();
+                .verify_request(&method, &uri, &headers, hash_for_sig)
+            {
+                return e.into_response();
+            }
         }
+        let verify_hash = payload_hash.filter(|h| h != UNSIGNED_PAYLOAD);
         return match handle_put_object_stream(
             state,
             bucket.as_deref().unwrap(),
@@ -151,35 +153,7 @@ pub async fn handle_s3_request(
             &headers,
             body,
             content_length,
-            None,
-        )
-        .await
-        {
-            Ok(r) => r,
-            Err(e) => e.into_response(),
-        };
-    }
-
-    if let Some(ref claimed_hash) = payload_hash
-        && method == Method::PUT
-        && bucket.is_some()
-        && key.is_some()
-        && has_auth
-    {
-        if let Err(e) = state
-            .auth
-            .verify_request(&method, &uri, &headers, claimed_hash)
-        {
-            return e.into_response();
-        }
-        return match handle_put_object_stream(
-            state,
-            bucket.as_deref().unwrap(),
-            key.as_deref().unwrap(),
-            &headers,
-            body,
-            content_length,
-            Some(claimed_hash.clone()),
+            verify_hash,
         )
         .await
         {
