@@ -19,6 +19,9 @@ impl BunnyClient {
         let client = Client::builder()
             .user_agent("bunny-s3-proxy/0.1.0")
             .connect_timeout(std::time::Duration::from_secs(30))
+            .http2_initial_stream_window_size(16 * 1024)
+            .http2_initial_connection_window_size(32 * 1024)
+            .http2_adaptive_window(false)
             .build()
             .expect("Failed to create HTTP client");
 
