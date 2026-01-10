@@ -18,6 +18,7 @@ impl BunnyClient {
     pub fn new(config: StorageZoneConfig) -> Self {
         let client = Client::builder()
             .user_agent("bunny-s3-proxy/0.1.0")
+            .connect_timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("Failed to create HTTP client");
 
