@@ -85,7 +85,9 @@ async fn serve_tcp(listener: TcpListener, app: Router) -> anyhow::Result<()> {
     builder
         .http2()
         .initial_stream_window_size(16 * 1024)
-        .initial_connection_window_size(32 * 1024);
+        .initial_connection_window_size(32 * 1024)
+        .adaptive_window(false)
+        .max_send_buf_size(16 * 1024);
 
     loop {
         let (stream, _) = listener.accept().await?;
