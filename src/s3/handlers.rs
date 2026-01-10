@@ -27,14 +27,14 @@ use super::types::{
 };
 use super::xml;
 
-struct HashingStream<S> {
+struct HashingStream<S, H> {
     inner: S,
-    hasher: Sha256,
+    hasher: H,
     hash_sender: Option<oneshot::Sender<String>>,
 }
 
-impl<S> HashingStream<S> {
-    fn new(inner: S) -> (Self, oneshot::Receiver<String>) {
+impl<S> HashingStream<S, Sha256> {
+    fn new_sha256(inner: S) -> (Self, oneshot::Receiver<String>) {
         let (tx, rx) = oneshot::channel();
         (
             Self {
@@ -47,22 +47,40 @@ impl<S> HashingStream<S> {
     }
 }
 
-impl<S, E> futures::Stream for HashingStream<S>
+impl<S> HashingStream<S, md5::Md5> {
+    fn new_md5(inner: S) -> (Self, oneshot::Receiver<String>) {
+        let (tx, rx) = oneshot::channel();
+        (
+            Self {
+                inner,
+                hasher: md5::Md5::new(),
+                hash_sender: Some(tx),
+            },
+            rx,
+        )
+    }
+}
+
+impl<S: Unpin, H> Unpin for HashingStream<S, H> {}
+
+impl<S, E, H> futures::Stream for HashingStream<S, H>
 where
     S: futures::Stream<Item = std::result::Result<Bytes, E>> + Unpin,
+    H: Digest + Clone,
 {
     type Item = std::result::Result<Bytes, E>;
 
-    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        match Pin::new(&mut self.inner).poll_next(cx) {
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        match Pin::new(&mut this.inner).poll_next(cx) {
             Poll::Ready(Some(Ok(chunk))) => {
-                self.hasher.update(&chunk);
+                this.hasher.update(&chunk);
                 Poll::Ready(Some(Ok(chunk)))
             }
             Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
             Poll::Ready(None) => {
-                if let Some(sender) = self.hash_sender.take() {
-                    let hash = hex::encode(self.hasher.clone().finalize());
+                if let Some(sender) = this.hash_sender.take() {
+                    let hash = hex::encode(this.hasher.clone().finalize());
                     let _ = sender.send(hash);
                 }
                 Poll::Ready(None)
@@ -135,6 +153,9 @@ pub async fn handle_s3_request(
         .and_then(|v| v.to_str().ok())
         .and_then(|s| s.parse().ok());
 
+    let query = uri.query().unwrap_or("");
+    let is_multipart_part = query.contains("partNumber") && query.contains("uploadId");
+
     if method == Method::PUT && bucket.is_some() && key.is_some() {
         if has_auth {
             let hash_for_sig = payload_hash.as_deref().unwrap_or(UNSIGNED_PAYLOAD);
@@ -145,6 +166,22 @@ pub async fn handle_s3_request(
                 return e.into_response();
             }
         }
+
+        if is_multipart_part {
+            return match handle_upload_part_stream(
+                state,
+                bucket.as_deref().unwrap(),
+                query,
+                body,
+                content_length,
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(e) => e.into_response(),
+            };
+        }
+
         let verify_hash = payload_hash.filter(|h| h != UNSIGNED_PAYLOAD);
         return match handle_put_object_stream(
             state,
@@ -235,9 +272,6 @@ async fn route_request(
         (&Method::GET, Some(b), Some(k)) => handle_get_object(state, b, k, &headers).await,
         (&Method::PUT, Some(b), Some(k)) if headers.contains_key("x-amz-copy-source") => {
             handle_copy_object(state, b, k, &headers).await
-        }
-        (&Method::PUT, Some(b), Some(k)) if query.contains("partNumber") => {
-            handle_upload_part(state, b, query, body).await
         }
         (&Method::PUT, Some(b), Some(k)) => handle_put_object(state, b, k, &headers, body).await,
         (&Method::DELETE, Some(_), Some(_)) if query.contains("uploadId") => {
@@ -626,7 +660,7 @@ async fn handle_put_object_stream(
     let stream = stream.map(|r| r.map_err(std::io::Error::other));
 
     let computed_hash = if let Some(ref expected) = claimed_hash {
-        let (hashing_stream, hash_rx) = HashingStream::new(stream);
+        let (hashing_stream, hash_rx) = HashingStream::new_sha256(stream);
         state
             .bunny
             .upload_stream(key, hashing_stream, content_length)
@@ -753,11 +787,12 @@ async fn handle_initiate_multipart_upload(
         .into_response())
 }
 
-async fn handle_upload_part(
+async fn handle_upload_part_stream(
     state: AppState,
     bucket: &str,
     query: &str,
-    body: Bytes,
+    body: Body,
+    content_length: Option<u64>,
 ) -> Result<Response> {
     if bucket != state.config.storage_zone {
         return Err(ProxyError::BucketNotFound(bucket.to_string()));
@@ -773,7 +808,21 @@ async fn handle_upload_part(
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| ProxyError::InvalidRequest("Invalid partNumber".into()))?;
 
-    let etag = MultipartManager::upload_part(&state.bunny, upload_id, part_number, body).await?;
+    let path = format!("__multipart/{}/{:05}", upload_id, part_number);
+
+    let stream = body.into_data_stream();
+    let stream = stream.map(|r| r.map_err(std::io::Error::other));
+    let (hashing_stream, hash_rx) = HashingStream::new_md5(stream);
+
+    state
+        .bunny
+        .upload_stream(&path, hashing_stream, content_length)
+        .await?;
+
+    let etag = hash_rx
+        .await
+        .map_err(|_| ProxyError::InvalidRequest("Failed to compute ETag".to_string()))?;
+
     Ok((
         StatusCode::OK,
         [(header::ETAG, format!("\"{}\"", etag))],
@@ -913,7 +962,7 @@ mod tests {
             vec![Ok(Bytes::from_static(data))];
         let input_stream = stream::iter(chunks);
 
-        let (hashing_stream, hash_rx) = HashingStream::new(input_stream);
+        let (hashing_stream, hash_rx) = HashingStream::new_sha256(input_stream);
 
         let collected: Vec<_> = hashing_stream.collect().await;
         assert_eq!(collected.len(), 1);
@@ -938,7 +987,7 @@ mod tests {
         ];
         let input_stream = stream::iter(chunks);
 
-        let (hashing_stream, hash_rx) = HashingStream::new(input_stream);
+        let (hashing_stream, hash_rx) = HashingStream::new_sha256(input_stream);
 
         let collected: Vec<_> = hashing_stream.collect().await;
         assert_eq!(collected.len(), 2);
@@ -954,7 +1003,7 @@ mod tests {
         let chunks: Vec<std::result::Result<Bytes, std::io::Error>> = vec![];
         let input_stream = stream::iter(chunks);
 
-        let (hashing_stream, hash_rx) = HashingStream::new(input_stream);
+        let (hashing_stream, hash_rx) = HashingStream::new_sha256(input_stream);
 
         let collected: Vec<_> = hashing_stream.collect().await;
         assert_eq!(collected.len(), 0);

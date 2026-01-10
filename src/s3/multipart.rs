@@ -36,23 +36,6 @@ impl MultipartManager {
         Ok(upload_id)
     }
 
-    pub async fn upload_part(
-        client: &BunnyClient,
-        upload_id: &str,
-        part_number: i32,
-        data: Bytes,
-    ) -> Result<String> {
-        if !Self::exists(client, upload_id).await? {
-            return Err(ProxyError::MultipartNotFound(upload_id.to_string()));
-        }
-
-        use md5::Digest;
-        let etag = format!("{:x}", md5::Md5::digest(&data));
-        let path = Self::part_path(upload_id, part_number);
-        client.upload(&path, data, Default::default()).await?;
-        Ok(etag)
-    }
-
     pub async fn complete(
         client: &BunnyClient,
         _bucket: &str,
