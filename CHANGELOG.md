@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.20](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.19...bunny-s3-proxy-v0.3.20) (2026-01-10)
+
+
+### Bug Fixes
+
+* forward Range requests to Bunny instead of buffering ([65863f7](https://github.com/0xC9C3/bunny-s3-proxy/commit/65863f789ad46e7f17d5af231bc77cec94b6b8f5))
+
 ## [0.3.19](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.18...bunny-s3-proxy-v0.3.19) (2026-01-10)
 
 
