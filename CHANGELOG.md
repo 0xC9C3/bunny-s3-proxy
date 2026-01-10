@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.14](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.13...bunny-s3-proxy-v0.3.14) (2026-01-10)
+
+
+### Bug Fixes
+
+* disable HTTP/2 adaptive window to prevent large window updates ([4a33870](https://github.com/0xC9C3/bunny-s3-proxy/commit/4a33870c314f052e2ba2c72976abbf85bc947bfc))
+
 ## [0.3.13](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.12...bunny-s3-proxy-v0.3.13) (2026-01-10)
 
 
