@@ -155,24 +155,6 @@ pub fn initiate_multipart_upload_response(bucket: &str, key: &str, upload_id: &s
     )
 }
 
-pub fn complete_multipart_upload_response(
-    bucket: &str,
-    key: &str,
-    location: &str,
-    etag: &str,
-) -> String {
-    format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<CompleteMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
-<Location>{}</Location><Bucket>{}</Bucket><Key>{}</Key><ETag>"{}"</ETag>
-</CompleteMultipartUploadResult>"#,
-        esc(location),
-        esc(bucket),
-        esc(key),
-        esc(etag)
-    )
-}
-
 pub fn list_parts_response(
     bucket: &str,
     key: &str,

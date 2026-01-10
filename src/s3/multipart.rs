@@ -1,10 +1,148 @@
-use async_stream::try_stream;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
-use futures::StreamExt;
+use futures::Stream;
+use std::pin::Pin;
+use std::task::{Context, Poll};
 
 use crate::bunny::client::BunnyClient;
 use crate::error::{ProxyError, Result};
+
+enum PartState {
+    NeedVerify,
+    Verifying(
+        Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = crate::error::Result<crate::bunny::client::DownloadResponse>,
+                    > + Send,
+            >,
+        >,
+    ),
+    Downloading(
+        Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = crate::error::Result<crate::bunny::client::DownloadResponse>,
+                    > + Send,
+            >,
+        >,
+    ),
+    Streaming(Pin<Box<dyn Stream<Item = std::result::Result<Bytes, reqwest::Error>> + Send>>),
+}
+
+struct PartConcatStream {
+    client: BunnyClient,
+    upload_id: String,
+    parts: std::vec::IntoIter<(i32, String)>,
+    current_part: Option<(i32, String)>,
+    state: PartState,
+    verified_etags: Vec<String>,
+}
+
+impl PartConcatStream {
+    fn new(client: BunnyClient, upload_id: String, parts: Vec<(i32, String)>) -> Self {
+        Self {
+            client,
+            upload_id,
+            parts: parts.into_iter(),
+            current_part: None,
+            state: PartState::NeedVerify,
+            verified_etags: Vec::new(),
+        }
+    }
+}
+
+impl Stream for PartConcatStream {
+    type Item = std::result::Result<Bytes, std::io::Error>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        loop {
+            match &mut self.state {
+                PartState::NeedVerify => match self.parts.next() {
+                    Some((part_number, expected_etag)) => {
+                        self.current_part = Some((part_number, expected_etag));
+                        let path = MultipartManager::part_etag_path(&self.upload_id, part_number);
+                        let client = self.client.clone();
+                        self.state =
+                            PartState::Verifying(Box::pin(
+                                async move { client.download(&path).await },
+                            ));
+                        continue;
+                    }
+                    None => return Poll::Ready(None),
+                },
+
+                PartState::Verifying(fut) => match fut.as_mut().poll(cx) {
+                    Poll::Ready(Ok(download)) => {
+                        let (part_number, expected_etag) = self.current_part.as_ref().unwrap();
+                        let expected = expected_etag.trim_matches('"').to_string();
+                        let part_number = *part_number;
+                        let upload_id = self.upload_id.clone();
+                        let client = self.client.clone();
+
+                        self.state = PartState::Downloading(Box::pin(async move {
+                            let data = download.bytes().await?;
+                            let actual_etag = String::from_utf8(data.to_vec()).map_err(|_| {
+                                ProxyError::InvalidPart(format!(
+                                    "Invalid ETag for part {}",
+                                    part_number
+                                ))
+                            })?;
+
+                            if actual_etag != expected {
+                                return Err(ProxyError::InvalidPart(format!(
+                                    "Part {} ETag mismatch: expected {}, got {}",
+                                    part_number, expected, actual_etag
+                                )));
+                            }
+
+                            let path = MultipartManager::part_path(&upload_id, part_number);
+                            client.download(&path).await
+                        }));
+                        continue;
+                    }
+                    Poll::Ready(Err(e)) => {
+                        return Poll::Ready(Some(Err(std::io::Error::other(e.to_string()))));
+                    }
+                    Poll::Pending => return Poll::Pending,
+                },
+
+                PartState::Downloading(fut) => match fut.as_mut().poll(cx) {
+                    Poll::Ready(Ok(download)) => {
+                        if let Some((_, expected_etag)) = self.current_part.take() {
+                            self.verified_etags
+                                .push(expected_etag.trim_matches('"').to_string());
+                        }
+                        self.state = PartState::Streaming(Box::pin(download.bytes_stream()));
+                        continue;
+                    }
+                    Poll::Ready(Err(e)) => {
+                        return Poll::Ready(Some(Err(std::io::Error::other(e.to_string()))));
+                    }
+                    Poll::Pending => return Poll::Pending,
+                },
+
+                PartState::Streaming(stream) => match stream.as_mut().poll_next(cx) {
+                    Poll::Ready(Some(Ok(chunk))) => {
+                        return Poll::Ready(Some(Ok(chunk)));
+                    }
+                    Poll::Ready(Some(Err(e))) => {
+                        return Poll::Ready(Some(Err(std::io::Error::other(e.to_string()))));
+                    }
+                    Poll::Ready(None) => {
+                        if let Some((part_num, _)) = &self.current_part {
+                            tracing::debug!("PartConcatStream: finished part {}", part_num);
+                        }
+                        self.current_part = None;
+                        self.state = PartState::NeedVerify;
+                        continue;
+                    }
+                    Poll::Pending => return Poll::Pending,
+                },
+            }
+        }
+    }
+}
 
 const MULTIPART_PREFIX: &str = "__multipart";
 
@@ -71,60 +209,57 @@ impl MultipartManager {
         key: &str,
         parts: &[(i32, String)],
     ) -> Result<String> {
-        if !Self::exists(client, upload_id).await? {
+        let fresh_client = client.fresh();
+
+        tracing::debug!("CompleteMultipartUpload: checking if upload exists");
+        if !Self::exists(&fresh_client, upload_id).await? {
             return Err(ProxyError::MultipartNotFound(upload_id.to_string()));
         }
 
         let mut total_size: u64 = 0;
-        let mut part_etags = Vec::new();
+        let mut parts_with_etags = Vec::with_capacity(parts.len());
 
+        tracing::debug!("CompleteMultipartUpload: describing {} parts", parts.len());
         for (part_number, expected_etag) in parts {
             let path = Self::part_path(upload_id, *part_number);
-            let obj = client
-                .describe(&path)
-                .await
-                .map_err(|_| ProxyError::InvalidPart(format!("Part {} not found", part_number)))?;
-
-            let actual_etag = Self::read_part_etag(client, upload_id, *part_number).await?;
-            let expected = expected_etag.trim_matches('"');
-
-            if actual_etag != expected {
-                return Err(ProxyError::InvalidPart(format!(
-                    "Part {} ETag mismatch: expected {}, got {}",
-                    part_number, expected, actual_etag
-                )));
-            }
+            let obj = fresh_client.describe(&path).await.map_err(|e| {
+                tracing::error!("Failed to describe part {}: {:?}", part_number, e);
+                ProxyError::InvalidPart(format!("Part {} not found", part_number))
+            })?;
 
             total_size += obj.length.max(0) as u64;
-            part_etags.push(actual_etag);
+            parts_with_etags.push((*part_number, expected_etag.clone()));
         }
 
-        let parts_for_stream: Vec<(i32, String)> = parts.to_vec();
-        let client_clone = client.clone();
-        let upload_id_clone = upload_id.to_string();
-
-        let stream = try_stream! {
-            for (part_number, _) in parts_for_stream {
-                let path = Self::part_path(&upload_id_clone, part_number);
-                let download = client_clone.download(&path).await.map_err(|e| std::io::Error::other(e.to_string()))?;
-                let mut byte_stream = download.bytes_stream();
-                while let Some(chunk) = byte_stream.next().await {
-                    let data = chunk.map_err(|e| std::io::Error::other(e.to_string()))?;
-                    yield data;
-                }
-            }
-        };
-
-        client.upload_stream(key, stream, Some(total_size)).await?;
+        tracing::debug!(
+            "CompleteMultipartUpload: total size {} bytes, starting upload",
+            total_size
+        );
 
         use md5::Digest;
-        let combined_md5: Vec<u8> = part_etags
+        let combined_md5: Vec<u8> = parts
             .iter()
-            .flat_map(|etag| hex::decode(etag).unwrap_or_default())
+            .flat_map(|(_, etag)| hex::decode(etag.trim_matches('"')).unwrap_or_default())
             .collect();
         let final_etag = format!("{:x}-{}", md5::Md5::digest(&combined_md5), parts.len());
 
-        Self::cleanup(client, upload_id).await?;
+        let stream = PartConcatStream::new(
+            fresh_client.clone(),
+            upload_id.to_string(),
+            parts_with_etags,
+        );
+
+        if let Err(e) = fresh_client
+            .upload_stream(key, stream, Some(total_size))
+            .await
+        {
+            tracing::error!("CompleteMultipartUpload: upload_stream failed: {:?}", e);
+            return Err(e);
+        }
+
+        tracing::debug!("CompleteMultipartUpload: upload complete, cleaning up");
+
+        Self::cleanup(&fresh_client, upload_id).await?;
 
         Ok(final_etag)
     }

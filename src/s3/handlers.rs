@@ -840,6 +840,8 @@ async fn handle_complete_multipart_upload(
     query: &str,
     body: Bytes,
 ) -> Result<Response> {
+    use axum::body::Body;
+
     if bucket != state.config.storage_zone {
         return Err(ProxyError::BucketNotFound(bucket.to_string()));
     }
@@ -848,7 +850,8 @@ async fn handle_complete_multipart_upload(
         serde_urlencoded::from_str(query).unwrap_or_default();
     let upload_id = params
         .get("uploadId")
-        .ok_or_else(|| ProxyError::InvalidRequest("Missing uploadId".into()))?;
+        .ok_or_else(|| ProxyError::InvalidRequest("Missing uploadId".into()))?
+        .clone();
 
     let req: CompleteMultipartUpload = quick_xml::de::from_str(
         std::str::from_utf8(&body).map_err(|e| ProxyError::InvalidRequest(e.to_string()))?,
@@ -860,15 +863,60 @@ async fn handle_complete_multipart_upload(
         .map(|p| (p.part_number, p.etag))
         .collect();
 
-    let etag = MultipartManager::complete(&state.bunny, bucket, upload_id, key, &parts).await?;
+    let bucket = bucket.to_string();
+    let key = key.to_string();
+    let region_base_url = state.config.region.base_url().to_string();
 
-    let location = format!("{}/{}/{}", state.config.region.base_url(), bucket, key);
-    Ok((
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, "application/xml")],
-        xml::complete_multipart_upload_response(bucket, key, &location, &etag),
-    )
-        .into_response())
+    let (tx, rx) = tokio::sync::mpsc::channel::<std::result::Result<Bytes, std::io::Error>>(16);
+
+    tokio::spawn(async move {
+        let _ = tx
+            .send(Ok(Bytes::from(
+                "<?xml version=\"1.0\" encoding=\"UTF-8\"?><!-- ",
+            )))
+            .await;
+
+        let keepalive_tx = tx.clone();
+        let keepalive_handle = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                if keepalive_tx.send(Ok(Bytes::from(" "))).await.is_err() {
+                    break;
+                }
+            }
+        });
+
+        let result =
+            MultipartManager::complete(&state.bunny, &bucket, &upload_id, &key, &parts).await;
+
+        keepalive_handle.abort();
+
+        match result {
+            Ok(etag) => {
+                let location = format!("{}/{}/{}", region_base_url, bucket, key);
+                let response = format!(
+                    r#" --><CompleteMultipartUploadResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><Location>{}</Location><Bucket>{}</Bucket><Key>{}</Key><ETag>"{}"</ETag></CompleteMultipartUploadResult>"#,
+                    location, bucket, key, etag
+                );
+                let _ = tx.send(Ok(Bytes::from(response))).await;
+            }
+            Err(e) => {
+                let error_xml = format!(
+                    r#" --><Error><Code>InternalError</Code><Message>{}</Message></Error>"#,
+                    e
+                );
+                let _ = tx.send(Ok(Bytes::from(error_xml))).await;
+            }
+        }
+    });
+
+    let body = Body::from_stream(tokio_stream::wrappers::ReceiverStream::new(rx));
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/xml")
+        .body(body)
+        .unwrap())
 }
 
 async fn handle_abort_multipart_upload(state: AppState, query: &str) -> Result<Response> {
