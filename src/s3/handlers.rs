@@ -7,8 +7,12 @@ use axum::{
 use bytes::Bytes;
 use chrono::Utc;
 use futures::StreamExt;
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context, Poll};
+use tokio::sync::oneshot;
 
 use crate::bunny::{BunnyClient, UploadOptions};
 use crate::config::Config;
@@ -22,6 +26,51 @@ use super::types::{
     S3CommonPrefix, S3Object, S3Owner,
 };
 use super::xml;
+
+struct HashingStream<S> {
+    inner: S,
+    hasher: Sha256,
+    hash_sender: Option<oneshot::Sender<String>>,
+}
+
+impl<S> HashingStream<S> {
+    fn new(inner: S) -> (Self, oneshot::Receiver<String>) {
+        let (tx, rx) = oneshot::channel();
+        (
+            Self {
+                inner,
+                hasher: Sha256::new(),
+                hash_sender: Some(tx),
+            },
+            rx,
+        )
+    }
+}
+
+impl<S, E> futures::Stream for HashingStream<S>
+where
+    S: futures::Stream<Item = std::result::Result<Bytes, E>> + Unpin,
+{
+    type Item = std::result::Result<Bytes, E>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match Pin::new(&mut self.inner).poll_next(cx) {
+            Poll::Ready(Some(Ok(chunk))) => {
+                self.hasher.update(&chunk);
+                Poll::Ready(Some(Ok(chunk)))
+            }
+            Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(e))),
+            Poll::Ready(None) => {
+                if let Some(sender) = self.hash_sender.take() {
+                    let hash = hex::encode(self.hasher.clone().finalize());
+                    let _ = sender.send(hash);
+                }
+                Poll::Ready(None)
+            }
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -81,20 +130,20 @@ pub async fn handle_s3_request(
         .map(|s| s.to_string());
 
     let is_unsigned = payload_hash.as_deref() == Some(UNSIGNED_PAYLOAD);
-    let skip_auth = is_unsigned || headers.get("authorization").is_none();
+    let has_auth = headers.get("authorization").is_some();
+    let content_length: Option<u64> = headers
+        .get(header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse().ok());
 
     if is_unsigned && method == Method::PUT && bucket.is_some() && key.is_some() {
-        if !skip_auth
+        if has_auth
             && let Err(e) = state
                 .auth
                 .verify_request(&method, &uri, &headers, UNSIGNED_PAYLOAD)
         {
             return e.into_response();
         }
-        let content_length = headers
-            .get(header::CONTENT_LENGTH)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.parse().ok());
         return match handle_put_object_stream(
             state,
             bucket.as_deref().unwrap(),
@@ -102,6 +151,7 @@ pub async fn handle_s3_request(
             &headers,
             body,
             content_length,
+            None,
         )
         .await
         {
@@ -110,7 +160,35 @@ pub async fn handle_s3_request(
         };
     }
 
-    let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
+    if let Some(ref claimed_hash) = payload_hash
+        && method == Method::PUT
+        && bucket.is_some()
+        && key.is_some()
+        && has_auth
+    {
+        if let Err(e) = state
+            .auth
+            .verify_request(&method, &uri, &headers, claimed_hash)
+        {
+            return e.into_response();
+        }
+        return match handle_put_object_stream(
+            state,
+            bucket.as_deref().unwrap(),
+            key.as_deref().unwrap(),
+            &headers,
+            body,
+            content_length,
+            Some(claimed_hash.clone()),
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => e.into_response(),
+        };
+    }
+
+    let body_bytes = match axum::body::to_bytes(body, 10 * 1024 * 1024).await {
         Ok(b) => b,
         Err(e) => {
             return ProxyError::InvalidRequest(format!("Failed to read body: {}", e))
@@ -126,7 +204,7 @@ pub async fn handle_s3_request(
         }
     });
 
-    if !skip_auth
+    if has_auth
         && let Err(e) = state
             .auth
             .verify_request(&method, &uri, &headers, &payload_hash)
@@ -537,6 +615,7 @@ async fn handle_put_object_stream(
     headers: &HeaderMap,
     body: Body,
     content_length: Option<u64>,
+    claimed_hash: Option<String>,
 ) -> Result<Response> {
     if bucket != state.config.storage_zone {
         return Err(ProxyError::BucketNotFound(bucket.to_string()));
@@ -572,13 +651,40 @@ async fn handle_put_object_stream(
     let stream = body.into_data_stream();
     let stream = stream.map(|r| r.map_err(std::io::Error::other));
 
-    state
-        .bunny
-        .upload_stream(key, stream, content_length)
-        .await?;
+    let computed_hash = if let Some(ref expected) = claimed_hash {
+        let (hashing_stream, hash_rx) = HashingStream::new(stream);
+        state
+            .bunny
+            .upload_stream(key, hashing_stream, content_length)
+            .await?;
 
-    let etag = content_length
-        .map(|l| format!("{:x}", l))
+        let computed = hash_rx.await.map_err(|_| {
+            ProxyError::InvalidRequest("Failed to compute content hash".to_string())
+        })?;
+
+        if computed != *expected {
+            tracing::warn!(
+                "Content hash mismatch for {}: expected {}, got {}",
+                key,
+                expected,
+                computed
+            );
+            let _ = state.bunny.delete(key).await;
+            return Err(ProxyError::InvalidRequest(
+                "Content hash mismatch".to_string(),
+            ));
+        }
+        Some(computed)
+    } else {
+        state
+            .bunny
+            .upload_stream(key, stream, content_length)
+            .await?;
+        None
+    };
+
+    let etag = computed_hash
+        .or_else(|| content_length.map(|l| format!("{:x}", l)))
         .unwrap_or_else(|| "streaming".to_string());
 
     Ok((
@@ -817,4 +923,69 @@ async fn handle_list_multipart_uploads(
         ),
     )
         .into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures::stream;
+
+    #[tokio::test]
+    async fn test_hashing_stream_computes_correct_sha256() {
+        let data = b"hello world";
+        let expected_hash = hex::encode(Sha256::digest(data));
+
+        let chunks: Vec<std::result::Result<Bytes, std::io::Error>> =
+            vec![Ok(Bytes::from_static(data))];
+        let input_stream = stream::iter(chunks);
+
+        let (hashing_stream, hash_rx) = HashingStream::new(input_stream);
+
+        let collected: Vec<_> = hashing_stream.collect().await;
+        assert_eq!(collected.len(), 1);
+        assert_eq!(collected[0].as_ref().unwrap().as_ref(), data);
+
+        let computed_hash = hash_rx.await.unwrap();
+        assert_eq!(computed_hash, expected_hash);
+    }
+
+    #[tokio::test]
+    async fn test_hashing_stream_multiple_chunks() {
+        let chunk1 = b"hello ";
+        let chunk2 = b"world";
+        let mut hasher = Sha256::new();
+        hasher.update(chunk1);
+        hasher.update(chunk2);
+        let expected_hash = hex::encode(hasher.finalize());
+
+        let chunks: Vec<std::result::Result<Bytes, std::io::Error>> = vec![
+            Ok(Bytes::from_static(chunk1)),
+            Ok(Bytes::from_static(chunk2)),
+        ];
+        let input_stream = stream::iter(chunks);
+
+        let (hashing_stream, hash_rx) = HashingStream::new(input_stream);
+
+        let collected: Vec<_> = hashing_stream.collect().await;
+        assert_eq!(collected.len(), 2);
+
+        let computed_hash = hash_rx.await.unwrap();
+        assert_eq!(computed_hash, expected_hash);
+    }
+
+    #[tokio::test]
+    async fn test_hashing_stream_empty() {
+        let expected_hash = hex::encode(Sha256::digest(b""));
+
+        let chunks: Vec<std::result::Result<Bytes, std::io::Error>> = vec![];
+        let input_stream = stream::iter(chunks);
+
+        let (hashing_stream, hash_rx) = HashingStream::new(input_stream);
+
+        let collected: Vec<_> = hashing_stream.collect().await;
+        assert_eq!(collected.len(), 0);
+
+        let computed_hash = hash_rx.await.unwrap();
+        assert_eq!(computed_hash, expected_hash);
+    }
 }
