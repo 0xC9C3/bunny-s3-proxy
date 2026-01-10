@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.12](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.11...bunny-s3-proxy-v0.3.12) (2026-01-10)
+
+
+### Bug Fixes
+
+* store ETags in metadata files to avoid re-downloading parts ([b51df8a](https://github.com/0xC9C3/bunny-s3-proxy/commit/b51df8a683bb783476f1509cde118c2d8dc14766))
+
 ## [0.3.11](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.10...bunny-s3-proxy-v0.3.11) (2026-01-10)
 
 
