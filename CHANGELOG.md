@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.10](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.9...bunny-s3-proxy-v0.3.10) (2026-01-10)
+
+
+### Bug Fixes
+
+* stream all PUT requests regardless of content hash header ([f1bedf0](https://github.com/0xC9C3/bunny-s3-proxy/commit/f1bedf0be268673079735ad7677a3395d33baf00))
+
 ## [0.3.9](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.8...bunny-s3-proxy-v0.3.9) (2026-01-10)
 
 
