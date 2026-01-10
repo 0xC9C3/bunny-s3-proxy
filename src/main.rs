@@ -77,32 +77,50 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn serve_tcp(listener: TcpListener, app: Router) -> anyhow::Result<()> {
+    use hyper::server::conn::{http1, http2};
     use hyper_util::rt::{TokioExecutor, TokioIo};
-    use hyper_util::server::conn::auto::Builder;
     use tower::ServiceExt;
-
-    let mut builder = Builder::new(TokioExecutor::new());
-    builder
-        .http2()
-        .initial_stream_window_size(16 * 1024)
-        .initial_connection_window_size(32 * 1024)
-        .adaptive_window(false)
-        .max_send_buf_size(16 * 1024);
 
     loop {
         let (stream, _) = listener.accept().await?;
-        let io = TokioIo::new(stream);
         let app = app.clone();
-        let builder = builder.clone();
 
         tokio::spawn(async move {
+            // Peek at first bytes to detect HTTP/2 preface
+            let mut buf = [0u8; 24];
+            let n = match stream.peek(&mut buf).await {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::error!("Error peeking connection: {}", e);
+                    return;
+                }
+            };
+
+            let is_h2 = n >= 24 && &buf[..24] == b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+            let io = TokioIo::new(stream);
+
             let service = hyper::service::service_fn(move |req| {
                 let app = app.clone();
                 async move { app.oneshot(req).await }
             });
 
-            if let Err(err) = builder.serve_connection(io, service).await {
-                tracing::error!("Error serving connection: {}", err);
+            if is_h2 {
+                let conn = http2::Builder::new(TokioExecutor::new())
+                    .initial_stream_window_size(16 * 1024)
+                    .initial_connection_window_size(32 * 1024)
+                    .adaptive_window(false)
+                    .max_send_buf_size(16 * 1024)
+                    .serve_connection(io, service);
+
+                if let Err(err) = conn.await {
+                    tracing::error!("Error serving HTTP/2 connection: {}", err);
+                }
+            } else {
+                let conn = http1::Builder::new().serve_connection(io, service);
+
+                if let Err(err) = conn.await {
+                    tracing::error!("Error serving HTTP/1 connection: {}", err);
+                }
             }
         });
     }
