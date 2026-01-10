@@ -4,7 +4,7 @@ mod error;
 mod lock;
 mod s3;
 
-use axum::{Router, routing::any};
+use axum::{Router, extract::DefaultBodyLimit, routing::any};
 use clap::Parser;
 use tokio::net::{TcpListener, UnixListener};
 use tower_http::trace::TraceLayer;
@@ -39,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
     let app = Router::new()
         .route("/", any(handle_s3_request))
         .route("/{*path}", any(handle_s3_request))
+        .layer(DefaultBodyLimit::disable())
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 

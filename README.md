@@ -71,6 +71,10 @@ Since Bunny doesn't support native multipart uploads, parts are stored as tempor
 
 This keeps the proxy stateless and horizontally scalable. Trade-off: complete uses double bandwidth (download + re-upload).
 
+## Large File Uploads
+
+For large files, use `UNSIGNED-PAYLOAD` (default for AWS CLI/SDKs). This streams directly to Bunny without buffering. Signed payload uploads buffer in memory and are limited by available RAM.
+
 ## Limitations
 
 - Single storage zone per instance (bucket = storage zone)

@@ -162,7 +162,7 @@ impl BunnyClient {
     pub async fn upload_stream(
         &self,
         path: &str,
-        stream: impl Stream<Item = std::result::Result<Bytes, std::io::Error>> + Send + Sync + 'static,
+        stream: impl Stream<Item = std::result::Result<Bytes, std::io::Error>> + Send + 'static,
         content_length: Option<u64>,
     ) -> Result<()> {
         let url = self.build_url(path);

@@ -6,6 +6,7 @@ use axum::{
 };
 use bytes::Bytes;
 use chrono::Utc;
+use futures::StreamExt;
 use std::collections::HashSet;
 use std::sync::Arc;
 
@@ -74,7 +75,42 @@ pub async fn handle_s3_request(
     let path = uri.path();
     let (bucket, key) = parse_s3_path(path);
 
-    let body_bytes = match axum::body::to_bytes(body, 100 * 1024 * 1024).await {
+    let payload_hash = headers
+        .get("x-amz-content-sha256")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let is_unsigned = payload_hash.as_deref() == Some(UNSIGNED_PAYLOAD);
+    let skip_auth = is_unsigned || headers.get("authorization").is_none();
+
+    if is_unsigned && method == Method::PUT && bucket.is_some() && key.is_some() {
+        if !skip_auth
+            && let Err(e) = state
+                .auth
+                .verify_request(&method, &uri, &headers, UNSIGNED_PAYLOAD)
+        {
+            return e.into_response();
+        }
+        let content_length = headers
+            .get(header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse().ok());
+        return match handle_put_object_stream(
+            state,
+            bucket.as_deref().unwrap(),
+            key.as_deref().unwrap(),
+            &headers,
+            body,
+            content_length,
+        )
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => e.into_response(),
+        };
+    }
+
+    let body_bytes = match axum::body::to_bytes(body, usize::MAX).await {
         Ok(b) => b,
         Err(e) => {
             return ProxyError::InvalidRequest(format!("Failed to read body: {}", e))
@@ -82,19 +118,14 @@ pub async fn handle_s3_request(
         }
     };
 
-    let payload_hash = headers
-        .get("x-amz-content-sha256")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            if body_bytes.is_empty() {
-                EMPTY_PAYLOAD_HASH.to_string()
-            } else {
-                calculate_payload_hash(&body_bytes)
-            }
-        });
+    let payload_hash = payload_hash.unwrap_or_else(|| {
+        if body_bytes.is_empty() {
+            EMPTY_PAYLOAD_HASH.to_string()
+        } else {
+            calculate_payload_hash(&body_bytes)
+        }
+    });
 
-    let skip_auth = payload_hash == UNSIGNED_PAYLOAD || headers.get("authorization").is_none();
     if !skip_auth
         && let Err(e) = state
             .auth
@@ -491,6 +522,65 @@ async fn handle_put_object(
 
     use md5::Digest;
     let etag = format!("{:x}", md5::Md5::digest(&body));
+    Ok((
+        StatusCode::OK,
+        [(header::ETAG, format!("\"{}\"", etag))],
+        "",
+    )
+        .into_response())
+}
+
+async fn handle_put_object_stream(
+    state: AppState,
+    bucket: &str,
+    key: &str,
+    headers: &HeaderMap,
+    body: Body,
+    content_length: Option<u64>,
+) -> Result<Response> {
+    if bucket != state.config.storage_zone {
+        return Err(ProxyError::BucketNotFound(bucket.to_string()));
+    }
+
+    let is_conditional = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.trim() == "*");
+
+    let _lock_guard = if is_conditional {
+        match state.lock.try_lock(key).await {
+            Some(guard) => {
+                if state.bunny.describe(key).await.is_ok() {
+                    return Ok(Response::builder()
+                        .status(StatusCode::PRECONDITION_FAILED)
+                        .body(Body::empty())
+                        .unwrap());
+                }
+                Some(guard)
+            }
+            None => {
+                return Ok(Response::builder()
+                    .status(StatusCode::CONFLICT)
+                    .body(Body::from("Concurrent write in progress"))
+                    .unwrap());
+            }
+        }
+    } else {
+        None
+    };
+
+    let stream = body.into_data_stream();
+    let stream = stream.map(|r| r.map_err(std::io::Error::other));
+
+    state
+        .bunny
+        .upload_stream(key, stream, content_length)
+        .await?;
+
+    let etag = content_length
+        .map(|l| format!("{:x}", l))
+        .unwrap_or_else(|| "streaming".to_string());
+
     Ok((
         StatusCode::OK,
         [(header::ETAG, format!("\"{}\"", etag))],
