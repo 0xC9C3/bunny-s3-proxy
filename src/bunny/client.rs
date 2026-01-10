@@ -20,9 +20,6 @@ impl BunnyClient {
             .user_agent("bunny-s3-proxy/0.1.0")
             .connect_timeout(std::time::Duration::from_secs(30))
             .pool_max_idle_per_host(0)
-            .http2_initial_stream_window_size(16 * 1024)
-            .http2_initial_connection_window_size(32 * 1024)
-            .http2_adaptive_window(false)
             .build()
             .expect("Failed to create HTTP client");
 
@@ -32,19 +29,18 @@ impl BunnyClient {
         }
     }
 
-    pub fn fresh(&self) -> Self {
-        let client = Client::builder()
+    fn upload_client() -> Client {
+        Client::builder()
             .user_agent("bunny-s3-proxy/0.1.0")
             .connect_timeout(std::time::Duration::from_secs(60))
             .pool_max_idle_per_host(0)
-            .http2_initial_stream_window_size(1024 * 1024)
-            .http2_initial_connection_window_size(2 * 1024 * 1024)
-            .http2_adaptive_window(true)
             .build()
-            .expect("Failed to create HTTP client");
+            .expect("Failed to create HTTP client")
+    }
 
+    pub fn fresh(&self) -> Self {
         Self {
-            client,
+            client: Self::upload_client(),
             config: Arc::clone(&self.config),
         }
     }
@@ -155,9 +151,9 @@ impl BunnyClient {
 
     pub async fn upload(&self, path: &str, body: Bytes, options: UploadOptions) -> Result<()> {
         let url = self.build_url(path);
+        let client = Self::upload_client();
 
-        let mut request = self
-            .client
+        let mut request = client
             .put(&url)
             .header("AccessKey", &self.config.access_key)
             .header("Content-Type", "application/octet-stream");
@@ -188,11 +184,11 @@ impl BunnyClient {
         content_length: Option<u64>,
     ) -> Result<()> {
         let url = self.build_url(path);
+        let client = Self::upload_client();
 
         let body = Body::wrap_stream(stream);
 
-        let mut request = self
-            .client
+        let mut request = client
             .put(&url)
             .header("AccessKey", &self.config.access_key)
             .header("Content-Type", "application/octet-stream");
