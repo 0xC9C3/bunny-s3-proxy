@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.11](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.10...bunny-s3-proxy-v0.3.11) (2026-01-10)
+
+
+### Features
+
+* stream all uploads including multipart parts ([4bb678b](https://github.com/0xC9C3/bunny-s3-proxy/commit/4bb678b2c835390aadc3996b86b6e6ddff999744))
+
 ## [0.3.10](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.9...bunny-s3-proxy-v0.3.10) (2026-01-10)
 
 
