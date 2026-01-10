@@ -136,17 +136,29 @@ impl BunnyClient {
     }
 
     pub async fn download(&self, path: &str) -> Result<DownloadResponse> {
+        self.download_range(path, None).await
+    }
+
+    pub async fn download_range(
+        &self,
+        path: &str,
+        range: Option<&str>,
+    ) -> Result<DownloadResponse> {
         let url = self.build_url(path);
 
-        let response = self
+        let mut request = self
             .client
             .get(&url)
-            .header("AccessKey", &self.config.access_key)
-            .send()
-            .await?;
+            .header("AccessKey", &self.config.access_key);
+
+        if let Some(range_value) = range {
+            request = request.header("Range", range_value);
+        }
+
+        let response = request.send().await?;
 
         match response.status() {
-            StatusCode::OK => Ok(DownloadResponse::new(response)),
+            StatusCode::OK | StatusCode::PARTIAL_CONTENT => Ok(DownloadResponse::new(response)),
             StatusCode::NOT_FOUND => Err(ProxyError::NotFound(path.to_string())),
             StatusCode::UNAUTHORIZED => Err(ProxyError::AccessDenied),
             status => Err(ProxyError::BunnyApi(format!("Download failed: {}", status))),
@@ -268,6 +280,18 @@ impl DownloadResponse {
         self.response
             .headers()
             .get("last-modified")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string())
+    }
+
+    pub fn status(&self) -> StatusCode {
+        self.response.status()
+    }
+
+    pub fn content_range(&self) -> Option<String> {
+        self.response
+            .headers()
+            .get("content-range")
             .and_then(|v| v.to_str().ok())
             .map(|s| s.to_string())
     }

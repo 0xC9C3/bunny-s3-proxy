@@ -471,15 +471,25 @@ async fn handle_get_object(
     if bucket != state.config.storage_zone {
         return Err(ProxyError::BucketNotFound(bucket.to_string()));
     }
-    let download = state.bunny.download(key).await?;
-    let total_size = download.content_length();
+
+    // Forward Range header to Bunny to avoid buffering entire file
+    let range_header = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
+    if let Some(range) = range_header {
+        tracing::info!("Range header: {:?}", range);
+    }
+    let download = state.bunny.download_range(key, range_header).await?;
+
+    let content_length = download.content_length();
     let content_type = download
         .content_type()
         .unwrap_or("application/octet-stream")
         .to_string();
     let etag = download.etag();
     let last_modified = download.last_modified();
+    let is_partial = download.status() == StatusCode::PARTIAL_CONTENT;
+    let content_range = download.content_range();
 
+    // Handle If-None-Match conditional request
     if let Some(if_none_match) = headers
         .get(header::IF_NONE_MATCH)
         .and_then(|v| v.to_str().ok())
@@ -505,37 +515,38 @@ async fn handle_get_object(
         }
     }
 
-    if let Some(range_header) = headers.get(header::RANGE).and_then(|v| v.to_str().ok())
-        && let Some(size) = total_size
-        && let Some((start, end)) = parse_range(range_header, size)
-    {
-        let data = download.bytes().await?;
-        let end = end.min(data.len() as u64 - 1);
-        let slice = data.slice(start as usize..=end as usize);
-
+    // Handle partial content (range request forwarded to Bunny)
+    if is_partial {
+        tracing::info!(
+            "Returning partial content: {:?}, length: {:?}",
+            content_range,
+            content_length
+        );
         let mut r = Response::builder()
             .status(StatusCode::PARTIAL_CONTENT)
-            .header(header::CONTENT_LENGTH, slice.len())
-            .header(header::CONTENT_TYPE, content_type)
-            .header(
-                header::CONTENT_RANGE,
-                format!("bytes {}-{}/{}", start, end, size),
-            )
+            .header(header::CONTENT_TYPE, &content_type)
             .header(header::ACCEPT_RANGES, "bytes");
+        if let Some(len) = content_length {
+            r = r.header(header::CONTENT_LENGTH, len);
+        }
+        if let Some(range) = content_range {
+            r = r.header(header::CONTENT_RANGE, range);
+        }
         if let Some(etag) = etag {
             r = r.header(header::ETAG, format!("\"{}\"", etag.trim_matches('"')));
         }
         if let Some(lm) = last_modified {
             r = r.header(header::LAST_MODIFIED, lm);
         }
-        return Ok(r.body(Body::from(slice)).unwrap());
+        return Ok(r.body(Body::from_stream(download.bytes_stream())).unwrap());
     }
 
+    // Full response
     let mut r = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, content_type)
         .header(header::ACCEPT_RANGES, "bytes");
-    if let Some(size) = total_size {
+    if let Some(size) = content_length {
         r = r.header(header::CONTENT_LENGTH, size);
     }
     if let Some(etag) = etag {
@@ -546,21 +557,6 @@ async fn handle_get_object(
     }
 
     Ok(r.body(Body::from_stream(download.bytes_stream())).unwrap())
-}
-
-fn parse_range(header: &str, total_size: u64) -> Option<(u64, u64)> {
-    let header = header.strip_prefix("bytes=")?;
-    let parts: Vec<&str> = header.split('-').collect();
-    if parts.len() != 2 {
-        return None;
-    }
-
-    match (parts[0].parse::<u64>(), parts[1].parse::<u64>()) {
-        (Ok(start), Ok(end)) => Some((start, end.min(total_size - 1))),
-        (Ok(start), Err(_)) => Some((start, total_size - 1)), // "bytes=100-" means from 100 to end
-        (Err(_), Ok(suffix)) => Some((total_size.saturating_sub(suffix), total_size - 1)), // "bytes=-100" means last 100 bytes
-        _ => None,
-    }
 }
 
 async fn handle_put_object(
