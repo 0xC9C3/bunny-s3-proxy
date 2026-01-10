@@ -19,7 +19,7 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -57,16 +57,31 @@ jobs:
           - target: aarch64-unknown-linux-musl
             platform: linux/arm64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
+
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Cache cross
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/bin/cross
+          key: cross-${{ runner.os }}
 
       - name: Install cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        run: which cross || cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Cache build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: build-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: build-${{ matrix.target }}-
 
       - name: Build with cross
         run: cross build --release --target ${{ matrix.target }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: bunny-s3-proxy-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/bunny-s3-proxy
@@ -76,7 +91,7 @@ jobs:
     if: ${{ needs.release-please.outputs.release_created }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Set image name lowercase
         id: image
@@ -124,3 +139,5 @@ jobs:
           tags: |
             ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:latest
             ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ steps.version.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
