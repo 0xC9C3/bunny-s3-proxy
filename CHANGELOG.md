@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.19](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.18...bunny-s3-proxy-v0.3.19) (2026-01-10)
+
+
+### Features
+
+* add zerofs workload e2e test with HTTP/2 memory safety ([1c0498a](https://github.com/0xC9C3/bunny-s3-proxy/commit/1c0498a5f9ab30a43904da1cf959e802e4bedfa3))
+
 ## [0.3.18](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.17...bunny-s3-proxy-v0.3.18) (2026-01-10)
 
 
