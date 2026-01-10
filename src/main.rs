@@ -70,10 +70,40 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Access Key ID: {}", config.s3_access_key_id);
 
         let listener = TcpListener::bind(config.listen_addr).await?;
-        axum::serve(listener, app).await?;
+        serve_tcp(listener, app).await?;
     }
 
     Ok(())
+}
+
+async fn serve_tcp(listener: TcpListener, app: Router) -> anyhow::Result<()> {
+    use hyper_util::rt::{TokioExecutor, TokioIo};
+    use hyper_util::server::conn::auto::Builder;
+    use tower::ServiceExt;
+
+    let mut builder = Builder::new(TokioExecutor::new());
+    builder
+        .http2()
+        .initial_stream_window_size(16 * 1024)
+        .initial_connection_window_size(32 * 1024);
+
+    loop {
+        let (stream, _) = listener.accept().await?;
+        let io = TokioIo::new(stream);
+        let app = app.clone();
+        let builder = builder.clone();
+
+        tokio::spawn(async move {
+            let service = hyper::service::service_fn(move |req| {
+                let app = app.clone();
+                async move { app.oneshot(req).await }
+            });
+
+            if let Err(err) = builder.serve_connection(io, service).await {
+                tracing::error!("Error serving connection: {}", err);
+            }
+        });
+    }
 }
 
 async fn serve_unix(listener: UnixListener, app: Router) -> anyhow::Result<()> {
