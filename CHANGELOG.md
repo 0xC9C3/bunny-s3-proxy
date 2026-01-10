@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.21](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.20...bunny-s3-proxy-v0.3.21) (2026-01-10)
+
+
+### Features
+
+* log Bunny.net error response bodies for debugging ([a46fe0c](https://github.com/0xC9C3/bunny-s3-proxy/commit/a46fe0c60f5beea4917a99438744da4ceca4fc33))
+
 ## [0.3.20](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.19...bunny-s3-proxy-v0.3.20) (2026-01-10)
 
 
