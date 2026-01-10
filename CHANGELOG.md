@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.8](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.7...bunny-s3-proxy-v0.3.8) (2026-01-10)
+
+
+### Features
+
+* stream large uploads without body size limit ([27f5cf3](https://github.com/0xC9C3/bunny-s3-proxy/commit/27f5cf3a172390fdc636393efa0c273933661df1))
+
 ## [0.3.7](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.6...bunny-s3-proxy-v0.3.7) (2026-01-09)
 
 
