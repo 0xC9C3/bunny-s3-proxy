@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.16](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.15...bunny-s3-proxy-v0.3.16) (2026-01-10)
+
+
+### Bug Fixes
+
+* limit HTTP/2 flow control windows on reqwest client to Bunny ([75bb168](https://github.com/0xC9C3/bunny-s3-proxy/commit/75bb1682e315cb98f2bcbed7ef58ca8bcc639a3a))
+
 ## [0.3.15](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.14...bunny-s3-proxy-v0.3.15) (2026-01-10)
 
 
