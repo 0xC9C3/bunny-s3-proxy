@@ -75,11 +75,16 @@ impl BunnyClient {
             .send()
             .await?;
 
-        match response.status() {
+        let status = response.status();
+        match status {
             StatusCode::OK => Ok(response.json().await?),
             StatusCode::NOT_FOUND => Ok(Vec::new()),
             StatusCode::UNAUTHORIZED => Err(ProxyError::AccessDenied),
-            status => Err(ProxyError::BunnyApi(format!("List failed: {}", status))),
+            _ => {
+                let body = response.text().await.unwrap_or_default();
+                tracing::error!("Bunny.net LIST {} returned {}: {}", path, status, body);
+                Err(ProxyError::BunnyApi(format!("List failed: {}", status)))
+            }
         }
     }
 
@@ -127,11 +132,16 @@ impl BunnyClient {
             .send()
             .await?;
 
-        match response.status() {
+        let status = response.status();
+        match status {
             StatusCode::OK => Ok(response.json().await?),
             StatusCode::NOT_FOUND => Err(ProxyError::NotFound(path.to_string())),
             StatusCode::UNAUTHORIZED => Err(ProxyError::AccessDenied),
-            status => Err(ProxyError::BunnyApi(format!("Describe failed: {}", status))),
+            _ => {
+                let body = response.text().await.unwrap_or_default();
+                tracing::error!("Bunny.net DESCRIBE {} returned {}: {}", path, status, body);
+                Err(ProxyError::BunnyApi(format!("Describe failed: {}", status)))
+            }
         }
     }
 
@@ -157,11 +167,16 @@ impl BunnyClient {
 
         let response = request.send().await?;
 
-        match response.status() {
+        let status = response.status();
+        match status {
             StatusCode::OK | StatusCode::PARTIAL_CONTENT => Ok(DownloadResponse::new(response)),
             StatusCode::NOT_FOUND => Err(ProxyError::NotFound(path.to_string())),
             StatusCode::UNAUTHORIZED => Err(ProxyError::AccessDenied),
-            status => Err(ProxyError::BunnyApi(format!("Download failed: {}", status))),
+            _ => {
+                let body = response.text().await.unwrap_or_default();
+                tracing::error!("Bunny.net GET {} returned {}: {}", path, status, body);
+                Err(ProxyError::BunnyApi(format!("Download failed: {}", status)))
+            }
         }
     }
 
@@ -183,13 +198,22 @@ impl BunnyClient {
 
         let response = request.body(body).send().await?;
 
-        match response.status() {
+        let status = response.status();
+        match status {
             StatusCode::OK | StatusCode::CREATED => Ok(()),
-            StatusCode::BAD_REQUEST => Err(ProxyError::InvalidRequest(
-                "Invalid path or checksum".into(),
-            )),
+            StatusCode::BAD_REQUEST => {
+                let body = response.text().await.unwrap_or_default();
+                tracing::error!("Bunny.net PUT {} returned {}: {}", path, status, body);
+                Err(ProxyError::InvalidRequest(
+                    "Invalid path or checksum".into(),
+                ))
+            }
             StatusCode::UNAUTHORIZED => Err(ProxyError::AccessDenied),
-            status => Err(ProxyError::BunnyApi(format!("Upload failed: {}", status))),
+            _ => {
+                let body = response.text().await.unwrap_or_default();
+                tracing::error!("Bunny.net PUT {} returned {}: {}", path, status, body);
+                Err(ProxyError::BunnyApi(format!("Upload failed: {}", status)))
+            }
         }
     }
 
@@ -214,13 +238,32 @@ impl BunnyClient {
 
         let response = request.body(body).send().await?;
 
-        match response.status() {
+        let status = response.status();
+        match status {
             StatusCode::OK | StatusCode::CREATED => Ok(()),
-            StatusCode::BAD_REQUEST => Err(ProxyError::InvalidRequest(
-                "Invalid path or checksum".into(),
-            )),
+            StatusCode::BAD_REQUEST => {
+                let body = response.text().await.unwrap_or_default();
+                tracing::error!(
+                    "Bunny.net PUT (stream) {} returned {}: {}",
+                    path,
+                    status,
+                    body
+                );
+                Err(ProxyError::InvalidRequest(
+                    "Invalid path or checksum".into(),
+                ))
+            }
             StatusCode::UNAUTHORIZED => Err(ProxyError::AccessDenied),
-            status => Err(ProxyError::BunnyApi(format!("Upload failed: {}", status))),
+            _ => {
+                let body = response.text().await.unwrap_or_default();
+                tracing::error!(
+                    "Bunny.net PUT (stream) {} returned {}: {}",
+                    path,
+                    status,
+                    body
+                );
+                Err(ProxyError::BunnyApi(format!("Upload failed: {}", status)))
+            }
         }
     }
 
@@ -234,10 +277,15 @@ impl BunnyClient {
             .send()
             .await?;
 
-        match response.status() {
+        let status = response.status();
+        match status {
             StatusCode::OK | StatusCode::NOT_FOUND | StatusCode::BAD_REQUEST => Ok(()),
             StatusCode::UNAUTHORIZED => Err(ProxyError::AccessDenied),
-            status => Err(ProxyError::BunnyApi(format!("Delete failed: {}", status))),
+            _ => {
+                let body = response.text().await.unwrap_or_default();
+                tracing::error!("Bunny.net DELETE {} returned {}: {}", path, status, body);
+                Err(ProxyError::BunnyApi(format!("Delete failed: {}", status)))
+            }
         }
     }
 
