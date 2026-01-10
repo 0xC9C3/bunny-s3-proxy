@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.15](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.14...bunny-s3-proxy-v0.3.15) (2026-01-10)
+
+
+### Bug Fixes
+
+* detect HTTP/2 preface and apply flow control limits ([4185123](https://github.com/0xC9C3/bunny-s3-proxy/commit/4185123f3ce55670c0f24184ce03923a38adeaed))
+
 ## [0.3.14](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.13...bunny-s3-proxy-v0.3.14) (2026-01-10)
 
 
