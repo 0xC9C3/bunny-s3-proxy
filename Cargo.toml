@@ -40,6 +40,15 @@ md-5 = "0.10"
 serde_urlencoded = "0.7"
 tokio-util = { version = "0.7", features = ["io"] }
 
+[dev-dependencies]
+rand = "0.8"
+aws-sdk-s3 = "1.89"
+aws-config = "1.8"
+
+[[test]]
+name = "e2e_zerofs"
+path = "tests/e2e_zerofs.rs"
+
 [profile.release]
 lto = true
 codegen-units = 1

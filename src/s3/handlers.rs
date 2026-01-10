@@ -237,7 +237,14 @@ fn parse_s3_path(path: &str) -> (Option<String>, Option<String>) {
     let parts: Vec<&str> = path.splitn(2, '/').collect();
     match parts.len() {
         1 => (Some(parts[0].to_string()), None),
-        2 => (Some(parts[0].to_string()), Some(parts[1].to_string())),
+        2 => {
+            let key = parts[1];
+            if key.is_empty() {
+                (Some(parts[0].to_string()), None)
+            } else {
+                (Some(parts[0].to_string()), Some(key.to_string()))
+            }
+        }
         _ => (None, None),
     }
 }
