@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.13](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.12...bunny-s3-proxy-v0.3.13) (2026-01-10)
+
+
+### Bug Fixes
+
+* limit HTTP/2 flow control windows to prevent OOM ([60f6f4e](https://github.com/0xC9C3/bunny-s3-proxy/commit/60f6f4e046041ed94d2b06f01615f5e04d06ca6f))
+
 ## [0.3.12](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.11...bunny-s3-proxy-v0.3.12) (2026-01-10)
 
 
