@@ -106,19 +106,14 @@ async fn serve_tcp(listener: TcpListener, app: Router) -> anyhow::Result<()> {
 
             if is_h2 {
                 let conn = http2::Builder::new(TokioExecutor::new())
-                    .initial_stream_window_size(16 * 1024)
-                    .initial_connection_window_size(32 * 1024)
-                    .adaptive_window(false)
-                    .max_send_buf_size(16 * 1024)
+                    .adaptive_window(true)
                     .serve_connection(io, service);
 
                 if let Err(err) = conn.await {
                     tracing::error!("Error serving HTTP/2 connection: {}", err);
                 }
             } else {
-                let conn = http1::Builder::new()
-                    .max_buf_size(16 * 1024) // 16KB read buffer limit
-                    .serve_connection(io, service);
+                let conn = http1::Builder::new().serve_connection(io, service);
 
                 if let Err(err) = conn.await {
                     tracing::error!("Error serving HTTP/1 connection: {}", err);

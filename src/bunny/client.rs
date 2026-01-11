@@ -19,10 +19,7 @@ impl BunnyClient {
         let client = Client::builder()
             .user_agent("bunny-s3-proxy/0.1.0")
             .connect_timeout(std::time::Duration::from_secs(30))
-            .pool_max_idle_per_host(0)
-            .http2_initial_stream_window_size(16 * 1024)
-            .http2_initial_connection_window_size(32 * 1024)
-            .http2_adaptive_window(false)
+            .http2_adaptive_window(true)
             .build()
             .expect("Failed to create HTTP client");
 
@@ -33,18 +30,8 @@ impl BunnyClient {
     }
 
     pub fn fresh(&self) -> Self {
-        let client = Client::builder()
-            .user_agent("bunny-s3-proxy/0.1.0")
-            .connect_timeout(std::time::Duration::from_secs(60))
-            .pool_max_idle_per_host(0)
-            .http2_initial_stream_window_size(1024 * 1024)
-            .http2_initial_connection_window_size(2 * 1024 * 1024)
-            .http2_adaptive_window(true)
-            .build()
-            .expect("Failed to create HTTP client");
-
         Self {
-            client,
+            client: self.client.clone(),
             config: Arc::clone(&self.config),
         }
     }
