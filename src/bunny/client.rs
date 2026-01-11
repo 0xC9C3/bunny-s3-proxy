@@ -64,7 +64,7 @@ impl BunnyClient {
         {
             Ok(r) => r,
             Err(e) => {
-                tracing::error!("Bunny.net LIST {} request failed: {}", path, e);
+                tracing::error!("Bunny.net LIST {} request failed: {:?}", path, e);
                 return Err(e.into());
             }
         };
@@ -128,7 +128,7 @@ impl BunnyClient {
         {
             Ok(r) => r,
             Err(e) => {
-                tracing::error!("Bunny.net DESCRIBE {} request failed: {}", path, e);
+                tracing::error!("Bunny.net DESCRIBE {} request failed: {:?}", path, e);
                 return Err(e.into());
             }
         };
@@ -169,7 +169,7 @@ impl BunnyClient {
         let response = match request.send().await {
             Ok(r) => r,
             Err(e) => {
-                tracing::error!("Bunny.net GET {} request failed: {}", path, e);
+                tracing::error!("Bunny.net GET {} request failed: {:?}", path, e);
                 return Err(e.into());
             }
         };
@@ -207,7 +207,7 @@ impl BunnyClient {
         let response = match request.body(body).send().await {
             Ok(r) => r,
             Err(e) => {
-                tracing::error!("Bunny.net PUT {} request failed: {}", path, e);
+                tracing::error!("Bunny.net PUT {} request failed: {:?}", path, e);
                 return Err(e.into());
             }
         };
@@ -255,7 +255,7 @@ impl BunnyClient {
         let response = match request.body(body).send().await {
             Ok(r) => r,
             Err(e) => {
-                tracing::error!("Bunny.net PUT (stream) {} request failed: {}", path, e);
+                tracing::error!("Bunny.net PUT (stream) {} request failed: {:?}", path, e);
                 return Err(e.into());
             }
         };
@@ -302,7 +302,7 @@ impl BunnyClient {
         {
             Ok(r) => r,
             Err(e) => {
-                tracing::error!("Bunny.net DELETE {} request failed: {}", path, e);
+                tracing::error!("Bunny.net DELETE {} request failed: {:?}", path, e);
                 return Err(e.into());
             }
         };
