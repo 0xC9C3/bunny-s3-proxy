@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.23](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.22...bunny-s3-proxy-v0.3.23) (2026-01-11)
+
+
+### Bug Fixes
+
+* enable connection pooling and adaptive flow control ([3c820c0](https://github.com/0xC9C3/bunny-s3-proxy/commit/3c820c0d0c9e57731de827b3e18d1507c9a9ee41))
+
 ## [0.3.22](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.21...bunny-s3-proxy-v0.3.22) (2026-01-11)
 
 
