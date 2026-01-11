@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.24](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.23...bunny-s3-proxy-v0.3.24) (2026-01-11)
+
+
+### Bug Fixes
+
+* use debug format for request error logging ([c2b0a57](https://github.com/0xC9C3/bunny-s3-proxy/commit/c2b0a57944548aa86647e5ff7e98060a9cd04218))
+
 ## [0.3.23](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.22...bunny-s3-proxy-v0.3.23) (2026-01-11)
 
 
