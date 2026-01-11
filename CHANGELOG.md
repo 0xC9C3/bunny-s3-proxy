@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.22](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.21...bunny-s3-proxy-v0.3.22) (2026-01-11)
+
+
+### Bug Fixes
+
+* remove verbose range request logging, add error body logging ([531108a](https://github.com/0xC9C3/bunny-s3-proxy/commit/531108a25b3741f70738213803517a8cd69c4cb9))
+
 ## [0.3.21](https://github.com/0xC9C3/bunny-s3-proxy/compare/bunny-s3-proxy-v0.3.20...bunny-s3-proxy-v0.3.21) (2026-01-10)
 
 
