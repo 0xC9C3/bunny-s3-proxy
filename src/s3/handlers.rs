@@ -474,9 +474,6 @@ async fn handle_get_object(
 
     // Forward Range header to Bunny to avoid buffering entire file
     let range_header = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
-    if let Some(range) = range_header {
-        tracing::info!("Range header: {:?}", range);
-    }
     let download = state.bunny.download_range(key, range_header).await?;
 
     let content_length = download.content_length();
@@ -517,11 +514,6 @@ async fn handle_get_object(
 
     // Handle partial content (range request forwarded to Bunny)
     if is_partial {
-        tracing::info!(
-            "Returning partial content: {:?}, length: {:?}",
-            content_range,
-            content_length
-        );
         let mut r = Response::builder()
             .status(StatusCode::PARTIAL_CONTENT)
             .header(header::CONTENT_TYPE, &content_type)

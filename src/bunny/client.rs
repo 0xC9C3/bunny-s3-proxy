@@ -67,13 +67,20 @@ impl BunnyClient {
             url.push('/');
         }
 
-        let response = self
+        let response = match self
             .client
             .get(&url)
             .header("AccessKey", &self.config.access_key)
             .header("Accept", "application/json")
             .send()
-            .await?;
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Bunny.net LIST {} request failed: {}", path, e);
+                return Err(e.into());
+            }
+        };
 
         let status = response.status();
         match status {
@@ -124,13 +131,20 @@ impl BunnyClient {
     pub async fn describe(&self, path: &str) -> Result<StorageObject> {
         let url = self.build_url(path);
 
-        let response = self
+        let response = match self
             .client
             .request(Method::from_bytes(b"DESCRIBE").unwrap(), &url)
             .header("AccessKey", &self.config.access_key)
             .header("Accept", "application/json")
             .send()
-            .await?;
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Bunny.net DESCRIBE {} request failed: {}", path, e);
+                return Err(e.into());
+            }
+        };
 
         let status = response.status();
         match status {
@@ -165,7 +179,13 @@ impl BunnyClient {
             request = request.header("Range", range_value);
         }
 
-        let response = request.send().await?;
+        let response = match request.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Bunny.net GET {} request failed: {}", path, e);
+                return Err(e.into());
+            }
+        };
 
         let status = response.status();
         match status {
@@ -196,9 +216,17 @@ impl BunnyClient {
             request = request.header("Override-Content-Type", content_type);
         }
 
-        let response = request.body(body).send().await?;
+        tracing::debug!("Bunny.net PUT {} starting", path);
+        let response = match request.body(body).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Bunny.net PUT {} request failed: {}", path, e);
+                return Err(e.into());
+            }
+        };
 
         let status = response.status();
+        tracing::debug!("Bunny.net PUT {} returned {}", path, status);
         match status {
             StatusCode::OK | StatusCode::CREATED => Ok(()),
             StatusCode::BAD_REQUEST => {
@@ -236,9 +264,17 @@ impl BunnyClient {
             request = request.header("Content-Length", len);
         }
 
-        let response = request.body(body).send().await?;
+        tracing::debug!("Bunny.net PUT (stream) {} starting", path);
+        let response = match request.body(body).send().await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Bunny.net PUT (stream) {} request failed: {}", path, e);
+                return Err(e.into());
+            }
+        };
 
         let status = response.status();
+        tracing::debug!("Bunny.net PUT (stream) {} returned {}", path, status);
         match status {
             StatusCode::OK | StatusCode::CREATED => Ok(()),
             StatusCode::BAD_REQUEST => {
@@ -270,12 +306,19 @@ impl BunnyClient {
     pub async fn delete(&self, path: &str) -> Result<()> {
         let url = self.build_url(path);
 
-        let response = self
+        let response = match self
             .client
             .delete(&url)
             .header("AccessKey", &self.config.access_key)
             .send()
-            .await?;
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::error!("Bunny.net DELETE {} request failed: {}", path, e);
+                return Err(e.into());
+            }
+        };
 
         let status = response.status();
         match status {
